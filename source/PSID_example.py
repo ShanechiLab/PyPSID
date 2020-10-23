@@ -25,18 +25,20 @@ def main():
 
     # Load data                    
     data = loadmat(args.datafile)
-    # This data is generated from a system (shown in Supplementary Fig. 2) with 
+    # This data is generated from a system (shown in Supplementary Fig. 1) with 
     # (a) 2 behaviorally relevant latent states, 
     # (b) 2 behaviorally irrelevant latent states, and 
     # (c) 2 states that drive behavior but are not represented in neural activity
 
+    allYData = data['y']
+    allZData = data['z']
     # Separate data into training and test data:
-    trainInds = np.arange(np.round(0.5*data['y'].shape[0]), dtype=int)
-    testInds = np.arange(1+trainInds[-1], data['y'].shape[0])
-    yTrain = data['y'][trainInds, :]
-    yTest = data['y'][testInds, :]
-    zTrain = data['z'][trainInds, :]
-    zTest = data['z'][testInds, :]
+    trainInds = np.arange(np.round(0.5*allYData.shape[0]), dtype=int)
+    testInds = np.arange(1+trainInds[-1], allYData.shape[0])
+    yTrain = allYData[trainInds, :]
+    yTest = allYData[testInds, :]
+    zTrain = allZData[trainInds, :]
+    zTest = allZData[testInds, :]
 
     ## (Example 1) PSID can be used to dissociate and extract only the 
     # behaviorally relevant latent states (with nx = n1 = 2)
@@ -62,6 +64,42 @@ def main():
     # behaviorally irrelevant latent states (with nx = 4, n1 = 2)
     idSys2 = PSID.PSID(yTrain.T, zTrain.T, nx=4, n1=2, i=10)
 
+    ## (Example 3) PSID can be used if data is available in discontinuous segments (e.g. different trials)
+    # In this case, y and z data segments must be provided as elements of a list
+    # Trials do not need to have the same number of samples
+    # Here, for example assume that trials start at every 1000 samples.
+    # And each each trial has a random length of 500 to 900 samples
+    trialStartInds = np.arange(0, allYData.shape[0]-1000, 1000)
+    trialDurRange = np.array([900, 990])
+    trialDur = np.random.randint(low=trialDurRange[0], high=1+trialDurRange[1], size=trialStartInds.shape)
+    trialInds = [trialStartInds[ti]+np.arange(trialDur[ti]) for ti in range(trialStartInds.size)] 
+    yTrials = [allYData[trialIndsThis, :] for trialIndsThis in trialInds] 
+    zTrials = [allZData[trialIndsThis, :] for trialIndsThis in trialInds] 
+
+    # Separate data into training and test data:
+    trainInds = np.arange(np.round(0.5*len(yTrials)), dtype=int)
+    testInds = np.arange(1+trainInds[-1], len(yTrials))
+    yTrain = [yTrials[ti].T for ti in trainInds]
+    yTest = [yTrials[ti].T for ti in testInds]
+    zTrain = [zTrials[ti].T for ti in trainInds]
+    zTest = [zTrials[ti].T for ti in testInds]
+
+    idSys3 = PSID.PSID(yTrain, zTrain, nx=2, n1=2, i=10)
+
+    for ti in range(len(yTest)):
+      zPredThis, yPredThis, xPredThis = idSys3.predict(yTest[ti].T)
+      if ti == 0:
+        zTestA = zTest[ti].T
+        zPredA = zPredThis
+      else:
+        zTestA = np.concatenate( (zTestA, zTest[ti].T), axis=0)
+        zPredA = np.concatenate( (zPredA, zPredThis), axis=0)
+
+    CCTrialBased = evalPrediction(zTestA, zPredA, 'CC')
+
+    print('PSID trial based decoding CC = {:.3g}, ideal decoding CC using true model = {:.3g}'.format(np.mean(CCTrialBased), np.mean(CCIdeal)) )
+
+    # #########################################
     # Plot the true and identified eigenvalues    
 
     # (Example 1) Eigenvalues when only learning behaviorally relevant states

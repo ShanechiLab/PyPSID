@@ -37,13 +37,46 @@ def projOrth(A, B):
     return (AHat, W)
 
 def blkhankskip(Y, i, j=None, s=0):
-    ny, N = Y.shape[0], Y.shape[1]
-    if j == None: 
-        j = N - i + 1
-    H = np.empty((ny * i, j))
-    for r in range(i):
-        H[slice(r*ny, r*ny + ny), :] = Y[:, slice(s+r, s+r+j)]
+    if isinstance(Y, (list, tuple)):
+        if j == None:
+            j = [None for yi in range(len(Y))]
+        for yInd in range(len(Y)):
+            thisH = blkhankskip(Y[yInd], i, j[yInd], s)
+            if yInd == 0:
+                H = thisH
+            else:
+                H = np.concatenate( (H, thisH), axis=1 )
+    else:
+        ny, N = Y.shape[0], Y.shape[1]
+        if j == None: 
+            j = N - i + 1
+        H = np.empty((ny * i, j))
+        for r in range(i):
+            H[slice(r*ny, r*ny + ny), :] = Y[:, slice(s+r, s+r+j)]
     return H
+
+def getHSize(Y, i):
+    ny = None
+    y1 = None
+    if not isinstance(Y, (list, tuple)):
+        ny, ySamples = Y.shape
+        N = ySamples - 2*i + 1
+        if ySamples > 0:
+            y1 = Y.flatten()[0]
+    else:
+        ySamples = []
+        N = []
+        for yi, thisY in enumerate(Y):
+            nyThis, ySamplesThis, NThis, y1This = getHSize(thisY, i)
+            if yi == 0:
+                ny = nyThis
+                y1 = y1This
+            else:
+                if nyThis != ny:
+                    raise(Exception('Size of dimension 1 must be the same in all elements of the data list.'))
+            ySamples.append(ySamplesThis)
+            N.append(NThis)
+    return ny, ySamples, N, y1
 
 def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaKF=True):
     """
@@ -107,31 +140,30 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
         [idSys, WS] = PSID(Y, Z, nx, n1, i, WS, return_WS=True);
         idSysSID = PSID(Y, Z, nx, 0, i); % Set n1=0 for SID
     """
-    ny, Ndat = Y.shape[0], Y.shape[1]
-    N = Ndat-2*i
+    ny, ySamples, N, y1 = getHSize(Y, i)
     if Z is not None:
-        nz, NdatZ = Z.shape[0], Z.shape[1]
+        nz, zSamples, _, z1 = getHSize(Z, i)
     else:
-        nz = 0
+        nz, zSamples = 0, 0
 
     if 'N' in WS and WS['N'] == N and \
         'i' in WS and WS['i'] == i and \
-        'YShape' in WS and WS['YShape'] == Y.shape and \
-        'ZShape' in WS and WS['ZShape'] == Z.shape and \
-        'Y1' in WS and WS['Y1'] == Y[0,0] and \
-        (nz == 0 or ('Z1' in WS and WS['Z1'] == Z[0,0])):
+        'ySamples' in WS and WS['ySamples'] == ySamples and \
+        'zSamples' in WS and WS['zSamples'] == zSamples and \
+        'Y1' in WS and WS['Y1'] == y1 and \
+        (nz == 0 or ('Z1' in WS and WS['Z1'] == z1)):
         # Have WS from previous call with the same data
         pass
     else:
         WS = {
             'N': N,
             'i': i,
-            'YShape': Y.shape,
-            'Y1': Y[0,0]
+            'ySamples': ySamples,
+            'Y1': y1
         }
         if nz > 0:
-            WS['ZShape'] = Z.shape
-            WS['Z1'] = Z[0,0]
+            WS['ZShape'] = zSamples
+            WS['Z1'] = z1
 
     if 'Yp' not in WS or WS['Yp'] is None:
         WS['Yp'] = blkhankskip(Y, i, N)
@@ -235,9 +267,10 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
     v  = WS['Yii'] - Cy @ Xk                             # Eq. (34)
 
     # Compute noise covariances
-    Q = (w @ w.T)/N                                # Eq. (35)
-    S = (w @ v.T)/N                                # Eq. (35)
-    R = (v @ v.T)/N                                # Eq. (35)
+    NA = w.shape[1]
+    Q = (w @ w.T)/NA                                # Eq. (35)
+    S = (w @ v.T)/NA                                # Eq. (35)
+    R = (v @ v.T)/NA                                # Eq. (35)
 
     Q = (Q + Q.T)/2      # Make precisely symmetric
     R = (R + R.T)/2      # Make precisely symmetric
@@ -250,8 +283,19 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
         'S': S
     })
     if fitCzViaKF and nz > 0:
-        xHat = s.kalman(Y.T)[0]
-        Cz = projOrth(Z, xHat.T)[1]
+        if not isinstance(Y, (list, tuple)):
+            xHat = s.kalman(Y.T)[0]
+            Cz = projOrth(Z, xHat.T)[1]
+        else:
+            for yInd in range(len(Y)):
+                xHatThis = s.kalman(Y[yInd].T)[0]
+                if yInd == 0:
+                    xHat = xHatThis
+                    ZA = Z[yInd]
+                else:
+                    xHat = np.concatenate( (xHat, xHatThis), axis=0)
+                    ZA = np.concatenate( (ZA, Z[yInd]), axis=1)
+            Cz = projOrth(ZA, xHat.T)[1]
     s.Cz = Cz
     
     if not return_WS:
