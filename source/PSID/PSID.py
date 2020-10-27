@@ -136,9 +136,9 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
         - (2) WS (optional): dictionary to provide to later calls of PSID
                 on the same data (see input (6) for more details)
     Usage example:
-        idSys = PSID(Y, Z, nx, n1, i);
-        [idSys, WS] = PSID(Y, Z, nx, n1, i, WS, return_WS=True);
-        idSysSID = PSID(Y, Z, nx, 0, i); % Set n1=0 for SID
+        idSys = PSID(Y, Z, nx, n1, i)
+        [idSys, WS] = PSID(Y, Z, nx, n1, i, WS, return_WS=True)
+        idSysSID = PSID(Y, Z, nx, 0, i)     # Set n1=0 for SID
     """
     ny, ySamples, N, y1 = getHSize(Y, i)
     if Z is not None:
@@ -162,7 +162,7 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
             'Y1': y1
         }
         if nz > 0:
-            WS['ZShape'] = zSamples
+            WS['zSamples'] = zSamples
             WS['Z1'] = z1
 
     if 'Yp' not in WS or WS['Yp'] is None:
@@ -281,7 +281,7 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
         'Q': Q,
         'R': R,
         'S': S
-    })
+    }, missing_marker=missing_marker)
     if fitCzViaKF and nz > 0:
         if not isinstance(Y, (list, tuple)):
             xHat = s.kalman(Y.T)[0]

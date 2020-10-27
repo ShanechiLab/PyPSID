@@ -130,7 +130,7 @@ class LSSM:
         if x0 == None:
             x0 = np.zeros((self.state_dim, 1))
         if P0 == None:
-            P0 = np.ones((self.state_dim, self.state_dim))
+            P0 = np.eye(self.state_dim)
         Xp = x0
         Pp = P0
         for i in range(N):
