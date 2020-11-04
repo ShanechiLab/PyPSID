@@ -186,7 +186,7 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
             WS['ZHatMinus'] = projOrth(Zf_Minus, Yp_Plus)[0] # Zf_Minus @ Yp_Plus.T @ np.linalg.pinv(Yp_Plus @ Yp_Plus.T) @ Yp_Plus  # Eq. (11)            
 
             # Take SVD of ZHat
-            WS['ZHat_U'], WS['ZHat_S'], ZHat_V = np.linalg.svd(WS['ZHat'], full_matrices=False)     # Eq. (12)
+            WS['ZHat_U'], WS['ZHat_S'], ZHat_V = linalg.svd(WS['ZHat'], full_matrices=False, lapack_driver='gesvd')     # Eq. (12)
 
         Sz = np.diag(WS['ZHat_S'][:n1])        # Eq. (12)
         Uz = WS['ZHat_U'][:  , :n1]            # Eq. (12)
@@ -226,7 +226,7 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
             WS['YHatMinus'] = projOrth(Yf_Minus, Yp_Plus)[0] # Yf_Minus @ Yp_Plus.T @ np.linalg.pinv(Yp_Plus @ Yp_Plus.T) @ Yp_Plus  # Eq. (23)
 
             # Take SVD of YHat
-            WS['YHat_U'], WS['YHat_S'], YHat_V = np.linalg.svd(WS['YHat'], full_matrices=False)     # Eq. (24)
+            WS['YHat_U'], WS['YHat_S'], YHat_V = linalg.svd(WS['YHat'], full_matrices=False, lapack_driver='gesvd')     # Eq. (24)
     
         S2 = np.diag(WS['YHat_S'][:n2])              # Eq. (24)
         U2 = WS['YHat_U'][:  , :n2]                  # Eq. (24)
