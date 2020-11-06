@@ -43,6 +43,8 @@ def main():
     ## (Example 1) PSID can be used to dissociate and extract only the 
     # behaviorally relevant latent states (with nx = n1 = 2)
     idSys1 = PSID.PSID(yTrain, zTrain, nx=2, n1=2, i=10)
+    # You can also use the time_first=False argument if time is the second dimension:
+    # idSys1 = PSID.PSID(yTrain.T, zTrain.T, nx=2, n1=2, i=10, time_first=False) 
 
     # Predict behavior using the learned model
     zTestPred1, yTestPred1, xTestPred1 = idSys1.predict(yTest)
