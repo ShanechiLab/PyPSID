@@ -36,30 +36,44 @@ def projOrth(A, B):
         AHat = np.zeros( A.shape )
     return (AHat, W)
 
-def blkhankskip(Y, i, j=None, s=0):
+def blkhankskip(Y, i, j=None, s=0, time_first=True):
+    """
+    Constructs block Hankel matrices from the provided data Y
+    """
     if isinstance(Y, (list, tuple)):
         if j == None:
             j = [None for yi in range(len(Y))]
         for yInd in range(len(Y)):
-            thisH = blkhankskip(Y[yInd], i, j[yInd], s)
+            thisH = blkhankskip(Y[yInd], i, j[yInd], s, time_first=time_first)
             if yInd == 0:
                 H = thisH
             else:
                 H = np.concatenate( (H, thisH), axis=1 )
     else:
-        ny, N = Y.shape[0], Y.shape[1]
+        ny, N = getHSize(Y, i, time_first=time_first)[:2]
         if j == None: 
             j = N - i + 1
         H = np.empty((ny * i, j))
         for r in range(i):
-            H[slice(r*ny, r*ny + ny), :] = Y[:, slice(s+r, s+r+j)]
+            if time_first:
+                thisBlock = Y[slice(s+r, s+r+j), :].T
+            else:
+                thisBlock = Y[:, slice(s+r, s+r+j)]
+            H[slice(r*ny, r*ny + ny), :] = thisBlock
     return H
 
-def getHSize(Y, i):
+def getHSize(Y, i, time_first=True):
+    """
+    Extracts time and data dimension information and the expected size of 
+    the block Hankel matrices that will be constructed using blkhankskip
+    """
     ny = None
     y1 = None
     if not isinstance(Y, (list, tuple)):
-        ny, ySamples = Y.shape
+        if time_first:
+            ySamples, ny = Y.shape
+        else:
+            ny, ySamples = Y.shape
         N = ySamples - 2*i + 1
         if ySamples > 0:
             y1 = Y.flatten()[0]
@@ -67,7 +81,7 @@ def getHSize(Y, i):
         ySamples = []
         N = []
         for yi, thisY in enumerate(Y):
-            nyThis, ySamplesThis, NThis, y1This = getHSize(thisY, i)
+            nyThis, ySamplesThis, NThis, y1This = getHSize(thisY, i, time_first)
             if yi == 0:
                 ny = nyThis
                 y1 = y1This
@@ -78,7 +92,40 @@ def getHSize(Y, i):
             N.append(NThis)
     return ny, ySamples, N, y1
 
-def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaKF=True):
+def fitCzViaKFRegression(s, Y, Z, time_first):
+    """
+    Fits the behavior projection parameter Cz by first estimating 
+    the latent states with a Kalman filter and then using ordinary 
+    least squares regression
+    """
+    if not isinstance(Y, (list, tuple)):
+        if time_first:
+            YTF = Y
+            ZTF = Z
+        else:
+            YTF = Y.T
+            ZTF = Z.T
+        xHat = s.kalman(YTF)[0]
+    else:
+        for yInd in range(len(Y)):
+            if time_first:
+                YTFThis = Y[yInd]
+                ZTFThis = Z[yInd]
+            else:
+                YTFThis = Y[yInd].T
+                ZTFThis = Z[yInd].T
+            xHatThis = s.kalman(YTFThis)[0]
+            if yInd == 0:
+                xHat = xHatThis
+                ZTF = ZTFThis
+            else:
+                xHat = np.concatenate( (xHat, xHatThis), axis=0)
+                ZTF = np.concatenate( (ZTF, ZTFThis), axis=0)
+    Cz = projOrth(ZTF.T, xHat.T)[1]
+    return Cz
+
+
+def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fit_Cz_via_KF=True, time_first=True):
     """
     PSID PSID: Preferential Subspace Identification Algorithm
     Identifies a linear stochastic model for a signal y, while prioritizing
@@ -110,22 +157,38 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
     
     Inputs:
         - (1) Y: Inputs signal 1 (e.g. neural signal). 
-                Must be ny x T:
-                [y(1), y(2), y(3), ..., y(T)]
+                Must be a T x ny matrix (unless time_first=False).
+                It can also be a list of matrices, one for each data segment (e.g. trials):
+                [y(1); y(2); y(3); ...; y(T)]
+                Segments do not need to have the same number of samples.
         - (2) Z: Inputs signal 2, to be studied using y (e.g. behavior). 
-                Must be nz x T:
-                [z(1), z(2), z(3), ..., z(T)]
+                Format options are similar to Y. 
+                Must be a T x nz matrix (unless time_first=False).
+                It can also be a list of matrices, one for each data segment (e.g. trials):
+                [z(1); z(2); z(3); ...; z(T)]
+                Segments do not need to have the same number of samples.
         - (3) nx: the total number of latent states in the stochastic model
         - (4) n1: number of latent states to extract in the first stage.
-        - (5) i: the number of block-rows (i.e. future and past horizon) 
+        - (5) i: the number of block-rows (i.e. future and past horizon). 
+                Different values of i may have different identification performance. 
+                Must be at least 2. It also determines the maximum n1 and nx 
+                that can be used per:
+                n1 <= nz * i
+                nx <= ny * i
+                So if you have a low dimensional y or z, you typically would choose larger 
+                values for i, and vice versa.
         - (6) WS: the WS output from a previous call using the exact 
                 same data. If calling PSID repeatedly with the same data 
                 and horizon, several computationally costly steps can be 
                 reused from before. Otherwise will be discarded.
         - (7) return_WS (default: False): if true, will return WS as the second output
-        - (8) fitCzViaKF (default: True): if true (preferred option), 
+        - (8) fit_Cz_via_KF (default: True): if true (preferred option), 
                 refits Cz more accurately using a KF after all other 
                 paramters are learned
+        - (9) time_first (default: True): if true, will expect the time dimension 
+                of the data to be the first dimension (e.g. Z is T x nz). If false, 
+                will expect time to be the second dimension in all data 
+                (e.g. Z is nz x T).
     Outputs:
         - (1) idSys: an LSSM object with the system parameters for 
                 the identified system. Will have the following 
@@ -140,9 +203,9 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
         [idSys, WS] = PSID(Y, Z, nx, n1, i, WS, return_WS=True)
         idSysSID = PSID(Y, Z, nx, 0, i)     # Set n1=0 for SID
     """
-    ny, ySamples, N, y1 = getHSize(Y, i)
+    ny, ySamples, N, y1 = getHSize(Y, i, time_first=time_first)
     if Z is not None:
-        nz, zSamples, _, z1 = getHSize(Z, i)
+        nz, zSamples, _, z1 = getHSize(Z, i, time_first=time_first)
     else:
         nz, zSamples = 0, 0
 
@@ -166,10 +229,10 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
             WS['Z1'] = z1
 
     if 'Yp' not in WS or WS['Yp'] is None:
-        WS['Yp'] = blkhankskip(Y, i, N)
-        WS['Yii'] = blkhankskip(Y, 1, N, i)
+        WS['Yp'] = blkhankskip(Y, i, N, time_first=time_first)
+        WS['Yii'] = blkhankskip(Y, 1, N, i, time_first=time_first)
         if nz > 0:
-            WS['Zii'] = blkhankskip(Z, 1, N, i)
+            WS['Zii'] = blkhankskip(Z, 1, N, i, time_first=time_first)
     
     if n1 > nx:
         n1 = nx  # n1 can at most be nx
@@ -179,7 +242,7 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
         if n1 > i*nz:
             raise(Exception('n1 (currently {}) must be at most i*nz={}*{}={}. Use a larger horizon i.'.format(n1,i,nz,i*nz)))
         if 'ZHat_U' not in WS or WS['ZHat_U'] is None:
-            Zf = blkhankskip(Z, i, N, i)
+            Zf = blkhankskip(Z, i, N, i, time_first=time_first)
             WS['ZHat'] = projOrth(Zf, WS['Yp'])[0] # Zf @ WS['Yp'].T @ np.linalg.pinv(WS['Yp'] @ WS['Yp'].T) @ WS['Yp']  # Eq. (10)
             Yp_Plus = np.concatenate((WS['Yp'], WS['Yii']))
             Zf_Minus = Zf[nz:, :]
@@ -210,7 +273,7 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
             'n1' not in WS or WS['n1'] != n1:
             WS['n1'] = n1
             
-            Yf = blkhankskip(Y, i, N, i)
+            Yf = blkhankskip(Y, i, N, i, time_first=time_first)
             Yf_Minus = Yf[ny:, :]
 
             if n1 > 0: # Have already extracted some states, so remove the already predicted part of Yf
@@ -281,21 +344,9 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fitCzViaK
         'Q': Q,
         'R': R,
         'S': S
-    }, missing_marker=missing_marker)
-    if fitCzViaKF and nz > 0:
-        if not isinstance(Y, (list, tuple)):
-            xHat = s.kalman(Y.T)[0]
-            Cz = projOrth(Z, xHat.T)[1]
-        else:
-            for yInd in range(len(Y)):
-                xHatThis = s.kalman(Y[yInd].T)[0]
-                if yInd == 0:
-                    xHat = xHatThis
-                    ZA = Z[yInd]
-                else:
-                    xHat = np.concatenate( (xHat, xHatThis), axis=0)
-                    ZA = np.concatenate( (ZA, Z[yInd]), axis=1)
-            Cz = projOrth(ZA, xHat.T)[1]
+    })
+    if fit_Cz_via_KF and nz > 0:
+        Cz = fitCzViaKFRegression(s, Y, Z, time_first)
     s.Cz = Cz
     
     if not return_WS:

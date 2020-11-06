@@ -42,7 +42,7 @@ def main():
 
     ## (Example 1) PSID can be used to dissociate and extract only the 
     # behaviorally relevant latent states (with nx = n1 = 2)
-    idSys1 = PSID.PSID(yTrain.T, zTrain.T, nx=2, n1=2, i=10)
+    idSys1 = PSID.PSID(yTrain, zTrain, nx=2, n1=2, i=10)
 
     # Predict behavior using the learned model
     zTestPred1, yTestPred1, xTestPred1 = idSys1.predict(yTest)
@@ -62,7 +62,7 @@ def main():
     
     ## (Example 2) Optionally, PSID can additionally also learn the 
     # behaviorally irrelevant latent states (with nx = 4, n1 = 2)
-    idSys2 = PSID.PSID(yTrain.T, zTrain.T, nx=4, n1=2, i=10)
+    idSys2 = PSID.PSID(yTrain, zTrain, nx=4, n1=2, i=10)
 
     ## (Example 3) PSID can be used if data is available in discontinuous segments (e.g. different trials)
     # In this case, y and z data segments must be provided as elements of a list
@@ -79,20 +79,20 @@ def main():
     # Separate data into training and test data:
     trainInds = np.arange(np.round(0.5*len(yTrials)), dtype=int)
     testInds = np.arange(1+trainInds[-1], len(yTrials))
-    yTrain = [yTrials[ti].T for ti in trainInds]
-    yTest = [yTrials[ti].T for ti in testInds]
-    zTrain = [zTrials[ti].T for ti in trainInds]
-    zTest = [zTrials[ti].T for ti in testInds]
+    yTrain = [yTrials[ti] for ti in trainInds]
+    yTest = [yTrials[ti] for ti in testInds]
+    zTrain = [zTrials[ti] for ti in trainInds]
+    zTest = [zTrials[ti] for ti in testInds]
 
     idSys3 = PSID.PSID(yTrain, zTrain, nx=2, n1=2, i=10)
 
     for ti in range(len(yTest)):
-      zPredThis, yPredThis, xPredThis = idSys3.predict(yTest[ti].T)
+      zPredThis, yPredThis, xPredThis = idSys3.predict(yTest[ti])
       if ti == 0:
-        zTestA = zTest[ti].T
+        zTestA = zTest[ti]
         zPredA = zPredThis
       else:
-        zTestA = np.concatenate( (zTestA, zTest[ti].T), axis=0)
+        zTestA = np.concatenate( (zTestA, zTest[ti]), axis=0)
         zPredA = np.concatenate( (zPredA, zPredThis), axis=0)
 
     CCTrialBased = evalPrediction(zTestA, zPredA, 'CC')

@@ -22,7 +22,7 @@ The main function for the Python implementation is [source/PSID/PSID.py](source/
 idSys = PSID.PSID(y, z, nx, n1, i);
 ```
 Inputs:
-- y and z are dimension x time matrices with neural (e.g. LFP signal powers or spike counts) and behavioral data (e.g. joint angles, hand position, etc), respectively. 
+- y and z are time x dimension matrices with neural (e.g. LFP signal powers or spike counts) and behavioral data (e.g. joint angles, hand position, etc), respectively. 
 - nx is the total number of latent states to be identified.
 - n1 is the number of states that are going to be dedicated to behaviorally relevant dynamics.
 - i is the subspace horizon used for modeling. 
