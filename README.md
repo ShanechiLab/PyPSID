@@ -7,7 +7,7 @@ Given signals y_t (e.g. neural signals) and z_t (e.g behavior), PSID learns a dy
 For the derivation and results in real neural data see the paper below.
 
 ## Publication: 
-Omid G. Sani, Hamidreza Abbaspourazad, Yan T. Wong, Bijan Pesaran, Maryam M. Shanechi. *Modeling behaviorally relevant neural dynamics enabled by preferential subspace identification*. Nature Neuroscience (2020). https://doi.org/10.1038/s41593-020-00733-0
+Omid G. Sani, Hamidreza Abbaspourazad, Yan T. Wong, Bijan Pesaran, Maryam M. Shanechi. *Modeling behaviorally relevant neural dynamics enabled by preferential subspace identification*. Nature Neuroscience, 24, 140–149 (2021). https://doi.org/10.1038/s41593-020-00733-0
 
 View-only full-text link: https://rdcu.be/b993t
 
@@ -18,6 +18,12 @@ https://twitter.com/MaryamShanechi/status/1325835609345122304
 
 
 # Usage guide
+## Installation
+Download the source code from this repository, or install PSID in your Python environment using pip, by running:
+```
+pip install PSID
+```
+
 ## Initialization
 Import the PSID module.
 ```
@@ -55,6 +61,9 @@ Outputs:
 Example simulated data and the code for running PSID on the data is provided in 
 [source/PSID_example.py](source/PSID_example.py)
 This script performs PSID model identification and visualizes the learned eigenvalues similar to in Supplementary Fig 1.
+
+The following notebook also contains some examples:
+https://colab.research.google.com/drive/16LwTXi_XJnBUlnhH0QXpa86x7CoKH0kZ
 
 # Licence
 Copyright (c) 2020 University of Southern California  
