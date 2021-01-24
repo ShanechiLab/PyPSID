@@ -16,6 +16,19 @@ def dict_get_either(d, fieldNames, defaultVal=None):
             return d[f]
     return defaultVal
 
+def genRandomGaussianNoise(N, Q, m=None):
+    Q2 = np.atleast_2d(Q)
+    dim = Q2.shape[0]
+    if m is None:
+        m = np.zeros((dim, 1))
+    
+    D, V = linalg.eig(Q2)
+    if np.any(D < 0):
+        raise("Cov matrix is not PSD!")
+    QShaping = np.real(np.matmul(V, np.sqrt(np.diag(D))))
+    w = np.matmul(np.random.randn(N, dim), QShaping.T)
+    return w, QShaping
+
 class LSSM:
     def __init__(self, params, output_dim=None, state_dim=None, randomizationSettings=None):
         self.output_dim = output_dim
@@ -45,7 +58,7 @@ class LSSM:
 
             self.Q = Q
             self.R = R
-            if S is None:
+            if S is None or S.size == 0:
                 S = np.zeros((self.state_dim, self.output_dim))
             S = np.atleast_2d(S)
             if S.shape[0] != self.state_dim:
@@ -119,6 +132,28 @@ class LSSM:
     
     def isStable(self):
         return np.all(np.abs(self.eigenvalues) < 1)
+    
+    def generateRealization(self, N, x0=None, w0=None):
+        QRS = np.block([[self.Q,self.S], [self.S.T,self.R]])
+        wv, self.QRSShaping = genRandomGaussianNoise(N, QRS)
+        w = wv[:, :self.state_dim]
+        v = wv[:, self.state_dim:]
+        if x0 is None:
+            x0 = np.zeros((self.state_dim, 1))
+        if w0 is None:
+            w0 = np.zeros((self.state_dim, 1))
+        X = np.empty((N, self.state_dim))
+        Y = np.empty((N, self.output_dim))
+        for i in range(N):
+            if i == 0:
+                Xt_1 = x0
+                Wt_1 = w0
+            else:
+                Xt_1 = X[i-1, :].T
+                Wt_1 = w[i-1, :].T
+            X[i, :] = (self.A @ Xt_1 + Wt_1).T
+            Y[i, :] = (self.C @ X[i, :].T + v[i, :].T).T
+        return Y, X
     
     def kalman(self, Y, x0=None, P0=None, steady_state=True):
         if np.any(np.isnan(self.K)) and steady_state:

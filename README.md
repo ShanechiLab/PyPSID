@@ -19,7 +19,7 @@ https://twitter.com/MaryamShanechi/status/1325835609345122304
 
 # Usage guide
 ## Installation
-Download the source code from this repository, or install PSID in your Python environment using pip, by running:
+Download the source code from [the GitHub repository](https://github.com/ShanechiLab/PyPSID), or install PSID in your Python environment using pip, by running:
 ```
 pip install PSID
 ```
