@@ -21,7 +21,7 @@ https://twitter.com/MaryamShanechi/status/1325835609345122304
 ## Installation
 Download the source code from [the GitHub repository](https://github.com/ShanechiLab/PyPSID), or install PSID in your Python environment using pip, by running:
 ```
-pip install PSID
+pip install PSID --upgrade
 ```
 
 ## Initialization
@@ -58,12 +58,12 @@ Outputs:
 - xPred: Extracted latent state
 
 # Example script
-Example simulated data and the code for running PSID on the data is provided in 
-[source/PSID_example.py](source/PSID_example.py)
+Example code for running PSID is provided in 
+[source/example/PSID_example.py](source/example/PSID_example.py)
 This script performs PSID model identification and visualizes the learned eigenvalues similar to in Supplementary Fig 1.
 
-The following notebook also contains some examples:
-https://colab.research.google.com/drive/16LwTXi_XJnBUlnhH0QXpa86x7CoKH0kZ
+The following notebook also contains some examples along with more descriptions:
+[source/example/PSID_tutorial.ipynb](source/example/PSID_tutorial.ipynb)
 
 # Licence
 Copyright (c) 2020 University of Southern California  

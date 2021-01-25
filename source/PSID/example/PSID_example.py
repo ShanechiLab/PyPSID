@@ -7,7 +7,8 @@ Shanechi Lab, University of Southern California
 Example for using the PSID algorithm
 """
 
-import argparse, io, os, copy
+import argparse, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,12 +19,15 @@ from PSID.evaluation import evalPrediction
 from PSID.MatHelper import loadmat
 
 def main():
+    sample_model_path = os.path.join(os.path.dirname(PSID.__file__), 'example', 'sample_model.mat')
+    
     parser = argparse.ArgumentParser(description='Run PSID on an example simulated dataset')
-    parser.add_argument('--datafile', type=str, default='./source/example/sample_model.mat', help='Data file')
+    parser.add_argument('--datafile', type=str, default=sample_model_path, help='Data file')
     
     args = parser.parse_args()
 
-    # Load data                    
+    # Load data
+    print('Loading example model from {}'.format(args.datafile))
     data = loadmat(args.datafile)
     # This is an example model (shown in Supplementary Fig. 1) with 
     # (a) 2 behaviorally relevant latent states, 
