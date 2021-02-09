@@ -13,7 +13,7 @@ with open("../README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="PSID",
-    version="1.0.2",
+    version="1.0.3",
     author="Omid Sani",
     author_email="omidsani@gmail.com",
     description="Python implementation for preferential subspace identification (PSID)",

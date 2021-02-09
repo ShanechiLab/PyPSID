@@ -31,7 +31,7 @@ import PSID
 ```
 
 ## Main learning function
-The main function for the Python implementation is [source/PSID/PSID.py](source/PSID/PSID.py) -> function PSID. A complete usage guide is available in the function. The following shows an example case:
+The main function for the Python implementation is [source/PSID/PSID.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/PSID.py) -> function PSID. A complete usage guide is available in the function. The following shows an example case:
 ```
 idSys = PSID.PSID(y, z, nx, n1, i);
 ```
@@ -59,14 +59,14 @@ Outputs:
 
 # Example script
 Example code for running PSID is provided in 
-[source/example/PSID_example.py](source/example/PSID_example.py)
+[source/example/PSID_example.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/PSID_example.py)
 This script performs PSID model identification and visualizes the learned eigenvalues similar to in Supplementary Fig 1.
 
 The following notebook also contains some examples along with more descriptions:
-[source/example/PSID_tutorial.ipynb](source/example/PSID_tutorial.ipynb)
+[source/example/PSID_tutorial.ipynb](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/PSID_tutorial.ipynb)
 
 # Licence
 Copyright (c) 2020 University of Southern California  
-See full notice in [LICENSE.md](LICENSE.md)  
+See full notice in [LICENSE.md](https://github.com/ShanechiLab/PyPSID/blob/main/LICENSE.md)  
 Omid G. Sani and Maryam M. Shanechi  
 Shanechi Lab, University of Southern California
