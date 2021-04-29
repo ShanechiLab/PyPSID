@@ -23,6 +23,7 @@ Download the source code from [the GitHub repository](https://github.com/Shanech
 ```
 pip install PSID --upgrade
 ```
+You can find the usage license in [LICENSE.md](https://github.com/ShanechiLab/PyPSID/blob/main/LICENSE.md).
 
 ## Initialization
 Import the PSID module.

@@ -1,4 +1,6 @@
 # Changes 
+- v1.0.4:
+  - Updates readme
 - v1.0.3:
   - Fixes readme links on https://pypi.org/project/PSID
 - v1.0.2:
