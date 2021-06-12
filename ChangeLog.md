@@ -1,4 +1,7 @@
 # Changes 
+- v1.0.5:
+  - Fixes the n1=0 case for trial based usage.
+  - Adds graceful handling of data segments that are too short.
 - v1.0.4:
   - Updates readme
 - v1.0.3:
