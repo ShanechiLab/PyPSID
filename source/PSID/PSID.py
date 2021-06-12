@@ -43,9 +43,12 @@ def blkhankskip(Y, i, j=None, s=0, time_first=True):
     if isinstance(Y, (list, tuple)):
         if j == None:
             j = [None for yi in range(len(Y))]
+        H = None
         for yInd in range(len(Y)):
+            if j[yInd] < 1:
+                continue # This data segment is too short
             thisH = blkhankskip(Y[yInd], i, j[yInd], s, time_first=time_first)
-            if yInd == 0:
+            if H is None:
                 H = thisH
             else:
                 H = np.concatenate( (H, thisH), axis=1 )
@@ -75,13 +78,14 @@ def getHSize(Y, i, time_first=True):
         else:
             ny, ySamples = Y.shape
         N = ySamples - 2*i + 1
+        NTot = N
         if ySamples > 0:
             y1 = Y.flatten()[0]
     else:
         ySamples = []
         N = []
         for yi, thisY in enumerate(Y):
-            nyThis, ySamplesThis, NThis, y1This = getHSize(thisY, i, time_first)
+            nyThis, ySamplesThis, NThis, y1This = getHSize(thisY, i, time_first)[:4]
             if yi == 0:
                 ny = nyThis
                 y1 = y1This
@@ -90,7 +94,9 @@ def getHSize(Y, i, time_first=True):
                     raise(Exception('Size of dimension 1 must be the same in all elements of the data list.'))
             ySamples.append(ySamplesThis)
             N.append(NThis)
-    return ny, ySamples, N, y1
+        NArr = np.array(N)
+        NTot = np.sum(NArr[NArr>0])
+    return ny, ySamples, N, y1, NTot
 
 def fitCzViaKFRegression(s, Y, Z, time_first):
     """
@@ -203,13 +209,18 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fit_Cz_vi
         [idSys, WS] = PSID(Y, Z, nx, n1, i, WS, return_WS=True)
         idSysSID = PSID(Y, Z, nx, 0, i)     # Set n1=0 for SID
     """
-    ny, ySamples, N, y1 = getHSize(Y, i, time_first=time_first)
+    ny, ySamples, N, y1, NTot = getHSize(Y, i, time_first=time_first)
     if Z is not None:
-        nz, zSamples, _, z1 = getHSize(Z, i, time_first=time_first)
+        nz, zSamples, _, z1, NTot = getHSize(Z, i, time_first=time_first)
     else:
         nz, zSamples = 0, 0
 
-    if 'N' in WS and WS['N'] == N and \
+    if isinstance(N, list) and np.any(np.array(N) < 1):
+        import warnings
+        warnings.warn('{} of the {} data segments will be discarded because they are too short for using with a horizon of {}.'.format(np.sum(np.array(N) < 1), len(N), i), )
+
+    if  'NTot' in WS and WS['NTot'] == NTot and \
+        'N' in WS and WS['N'] == N and \
         'i' in WS and WS['i'] == i and \
         'ySamples' in WS and WS['ySamples'] == ySamples and \
         'zSamples' in WS and WS['zSamples'] == zSamples and \
@@ -219,6 +230,7 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fit_Cz_vi
         pass
     else:
         WS = {
+            'NTot': NTot,
             'N': N,
             'i': i,
             'ySamples': ySamples,
@@ -261,8 +273,8 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fit_Cz_vi
         Xk_Plus1 = np.linalg.pinv(Oz_Minus) @ WS['ZHatMinus'];   # Eq. (16)
     else:
         n1 = 0
-        Xk = np.empty([0, N])
-        Xk_Plus1 = np.empty([0, N])
+        Xk = np.empty([0, NTot])
+        Xk_Plus1 = np.empty([0, NTot])
     
     # Stage 2
     n2 = nx - n1     
