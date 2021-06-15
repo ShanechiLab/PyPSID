@@ -155,13 +155,16 @@ class LSSM:
             Y[i, :] = (self.C @ X[i, :].T + v[i, :].T).T
         return Y, X
     
-    def kalman(self, Y, x0=None, P0=None, steady_state=True):
+    def kalman(self, Y, x0=None, P0=None, steady_state=True, return_state_cov=False):
         if np.any(np.isnan(self.K)) and steady_state:
             steady_state = False
             print('Steady state Kalman gain not available. Will perform non-steady-state Kalman')
         N = Y.shape[0]
         allXp = np.empty((N, self.state_dim))  # X(i|i-1)
-        allX = np.empty((N, self.state_dim))
+        allXf = np.empty((N, self.state_dim))  # X(i|i)
+        if return_state_cov:
+            allPp = np.zeros((N,self.state_dim,self.state_dim))  # P(i|i-1) 
+            allPf = np.zeros((N,self.state_dim,self.state_dim))  # P(i|i)
         if x0 == None:
             x0 = np.zeros((self.state_dim, 1))
         if P0 == None:
@@ -186,10 +189,14 @@ class LSSM:
                     K = self.A @ Kf                         # K(i)    
 
                 P = Pp - Kf @ self.C @ Pp                   # P(i|i)
+
+                if return_state_cov:
+                    allPp[i, :, :] = Pp  # P(i|i-1)
+                    allPf[i, :, :] = P    # P(i|i)
             
             if Kf is not None:  # Otherwise cannot do filtering
                 X = Xp + Kf @ zi # X(i|i)
-                allX[i, :] = np.transpose(X)
+                allXf[i, :] = np.transpose(X)
 
             newXp = self.A @ Xp
             newXp += K @ zi
@@ -199,12 +206,15 @@ class LSSM:
                 Pp = self.A @ Pp @ self.A.T + self.Q - K @ ziCov @ K.T
         
         allYp = np.transpose(self.C @ allXp.T)
-        return allXp, allYp, allX
+        if not return_state_cov:
+            return allXp, allYp, allXf
+        else:
+            return allXp, allYp, allXf, allPp, allPf
     
     def predict(self, Y, useXFilt=False):
-        allXp, allYp, allX = self.kalman(Y)
+        allXp, allYp, allXf = self.kalman(Y)
         if useXFilt:
-            allXp = allX
+            allXp = allXf
         if (hasattr(self, 'Cz') and self.Cz is not None):
             allZp = (self.Cz @ allXp.T).T
         else:

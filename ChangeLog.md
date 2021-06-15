@@ -1,4 +1,6 @@
 # Changes 
+- v1.0.6:
+  - Adds option to return the state prediction/filtering error covariances from the Kalman filter.
 - v1.0.5:
   - Fixes the n1=0 case for trial based usage.
   - Adds graceful handling of data segments that are too short.
