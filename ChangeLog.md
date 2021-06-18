@@ -1,4 +1,8 @@
 # Changes 
+Versioning follows [semver](https://semver.org/).
+
+- v1.1.0:
+  - Automatically does the necessary mean-removal preprocessing for input neural/behavior data. Automatically adds back the learned means to predicted signals. 
 - v1.0.6:
   - Adds option to return the state prediction/filtering error covariances from the Kalman filter.
 - v1.0.5:
