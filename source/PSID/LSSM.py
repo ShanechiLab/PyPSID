@@ -6,6 +6,7 @@ Shanechi Lab, University of Southern California
 
 An LSSM object for keeping parameters, filtering, etc
 """
+import warnings
 
 import numpy as np
 from scipy import linalg
@@ -28,9 +29,9 @@ def genRandomGaussianNoise(N, Q, m=None):
     QShaping = np.real(np.matmul(V, np.sqrt(np.diag(D))))
     w = np.matmul(np.random.randn(N, dim), QShaping.T)
     return w, QShaping
-
+    
 class LSSM:
-    def __init__(self, params, output_dim=None, state_dim=None, randomizationSettings=None):
+    def __init__(self, params, output_dim=None, state_dim=None):
         self.output_dim = output_dim
         self.state_dim = state_dim
         self.setParams(params)
@@ -68,14 +69,14 @@ class LSSM:
             self.Q = None
             self.R = None
             self.S = None
-            self.K = dict_get_either(params, ['K', 'k'], None)
-            self.innovCov = dict_get_either(params, ['innovCov'], None)
+            self.K = np.atleast_2d(dict_get_either(params, ['K', 'k'], None))
+            self.innovCov = np.atleast_2d(dict_get_either(params, ['innovCov'], None))
             
         self.update_secondary_params()
 
         for f, v in params.items(): # Add any remaining params (e.g. Cz)
             if not hasattr(self, f) and not hasattr(self, f.upper()) and \
-                f not in set(['sig', 'L0', 'P']):
+                    f not in set(['sig', 'L0', 'P']): 
                 setattr(self, f, v)
 
         if hasattr(self, 'Cz') and self.Cz is not None:
@@ -83,9 +84,9 @@ class LSSM:
             if Cz.shape[1] != self.state_dim and Cz.shape[0] == self.state_dim:
                 Cz = Cz.T
                 self.Cz = Cz
-    
+        
     def update_secondary_params(self):
-        if self.Q is not None: # Given QRS
+        if self.Q is not None and self.state_dim > 0: # Given QRS
             try:
                 A_Eigs = linalg.eig(self.A)[0]
             except Exception as e:
@@ -109,8 +110,8 @@ class LSSM:
                 self.Kf = self.Pp @ self.C.T @ innovCovInv
                 self.Kv = self.S @ innovCovInv
                 self.A_KC = self.A - self.K @ self.C
-            except:
-                print('Could not solve DARE')
+            except Exception as err:
+                print('Could not solve DARE: {}'.format(err))
                 self.Pp = np.empty(self.A.shape); self.Pp[:] = np.nan
                 self.K = np.empty((self.A.shape[0], self.R.shape[0])); self.K[:] = np.nan
                 self.Kf = np.array(self.K)
@@ -119,7 +120,7 @@ class LSSM:
                 self.A_KC = np.empty(self.A.shape); self.A_KC[:] = np.nan
             
             self.P2 = self.XCov - self.Pp # (should give the solvric solution) Proof: Katayama Theorem 5.3 and A.3 in pvo book
-        elif self.K is not None: # Given K
+        elif hasattr(self, 'K') and self.K is not None: # Given K
             self.XCov = None
             self.G = None
             self.YCov = None
@@ -129,11 +130,51 @@ class LSSM:
             self.Kv = None
             self.A_KC = self.A - self.K @ self.C
             self.P2 = None
+        elif self.R is not None:
+            self.YCov = self.R
     
     def isStable(self):
         return np.all(np.abs(self.eigenvalues) < 1)
     
-    def generateRealization(self, N, x0=None, w0=None):
+    def generateObservationFromStates(self, X, param_names=['C'], prep_model_param='YPrepModel'):
+        """Can generate Y or Z observation time series given the latent state time series X
+
+        Args:
+            X (numpy array): Dimensions are time x dimesions.
+            param_names (list, optional): The name of the read-out parameter. Defaults to ['C'].
+            prep_model_param (str, optional): The name of the preprocessing model parameter. 
+                        Defaults to 'YPrepModel'.
+
+        Returns:
+            numpy array: The observation time series. 
+                If param_names=['C'] and prep_model_param='YPrepModel', will 
+                    produce Y = C * X, and then applies the inverse of the 
+                    Y preprocessing model.
+                If param_names=['Cz'] and prep_model_param='ZPrepModel', will 
+                    produce Y = Cz * X, and then applies the inverse of the 
+                    Z preprocessing model.
+        """        
+        Y = None
+        if hasattr(self, param_names[0]):
+            C = getattr(self, param_names[0])
+        else:
+            C = None
+
+        if C is not None and C.size > 0:
+            ny = C.shape[0] if C is not None and self.C.size > 0 else D.shape[0]
+            N = X.shape[0]
+            Y = np.zeros((N, ny))
+            if C is not None and C.size > 0:
+                Y += (C @ X.T).T
+            
+        if prep_model_param is not None and hasattr(self, prep_model_param):
+            prep_model_param_obj = getattr(self, prep_model_param)
+            if prep_model_param_obj is not None:
+                Y = prep_model_param_obj.apply_inverse(Y) # Apply inverse of any mean-removal/zscoring
+
+        return Y
+    
+    def generateRealization(self, N, x0=None, w0=None, return_z=False):
         QRS = np.block([[self.Q,self.S], [self.S.T,self.R]])
         wv, self.QRSShaping = genRandomGaussianNoise(N, QRS)
         w = wv[:, :self.state_dim]
@@ -152,13 +193,23 @@ class LSSM:
                 Xt_1 = X[i-1, :].T
                 Wt_1 = w[i-1, :].T
             X[i, :] = (self.A @ Xt_1 + Wt_1).T
-            Y[i, :] = (self.C @ X[i, :].T + v[i, :].T).T
-        return Y, X
+            # Y[i, :] = (self.C @ X[i, :].T + v[i, :].T).T # Will make Y later
+        Y = v + self.generateObservationFromStates(X, param_names=['C'], prep_model_param='YPrepModel')
+        if return_z == False:
+            return Y, X
+        else:
+            Z = self.generateObservationFromStates(X, param_names=['Cz'], prep_model_param='ZPrepModel')
+            return Y, X, Z
     
     def kalman(self, Y, x0=None, P0=None, steady_state=True, return_state_cov=False):
+        if self.state_dim == 0:
+            allXp = np.zeros((Y.shape[0], self.state_dim))
+            allXf = allXp
+            allYp = np.zeros((Y.shape[0], self.output_dim))
+            return allXp, allYp, allXf
         if np.any(np.isnan(self.K)) and steady_state:
             steady_state = False
-            print('Steady state Kalman gain not available. Will perform non-steady-state Kalman')
+            warnings.warn('Steady state Kalman gain not available. Will perform non-steady-state Kalman.')
         N = Y.shape[0]
         allXp = np.empty((N, self.state_dim))  # X(i|i-1)
         allXf = np.empty((N, self.state_dim))  # X(i|i)
@@ -173,7 +224,10 @@ class LSSM:
         Pp = P0
         for i in range(N):
             allXp[i, :] = np.transpose(Xp) # X(i|i-1)
-            zi = Y[i, :][:, np.newaxis] - self.C @ Xp # Innovation Z(i)
+            thisY = Y[i, :][np.newaxis, :]
+            if hasattr(self, 'YPrepModel') and self.YPrepModel is not None:
+                thisY = self.YPrepModel.apply(thisY, time_first=True) # Apply any mean removal/zscoring
+            zi = thisY.T - self.C @ Xp # Innovation Z(i)
             
             if steady_state:
                 Kf = self.Kf
@@ -205,18 +259,19 @@ class LSSM:
             if not steady_state:
                 Pp = self.A @ Pp @ self.A.T + self.Q - K @ ziCov @ K.T
         
-        allYp = np.transpose(self.C @ allXp.T)
+        allYp = self.generateObservationFromStates(allXp, param_names=['C'], prep_model_param='YPrepModel')
+
         if not return_state_cov:
             return allXp, allYp, allXf
         else:
             return allXp, allYp, allXf, allPp, allPf
-    
-    def predict(self, Y, useXFilt=False):
-        allXp, allYp, allXf = self.kalman(Y)
+
+    def predict(self, Y, useXFilt=False, **kwargs):
+        allXp, allYp, allXf = self.kalman(Y, **kwargs)[0:3]
         if useXFilt:
             allXp = allXf
         if (hasattr(self, 'Cz') and self.Cz is not None):
-            allZp = (self.Cz @ allXp.T).T
+            allZp = self.generateObservationFromStates(allXp, param_names=['Cz'], prep_model_param='ZPrepModel')
         else:
             allZp = None
         return allZp, allYp, allXp

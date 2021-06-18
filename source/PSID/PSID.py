@@ -4,11 +4,13 @@ See full notice in LICENSE.md
 Omid G. Sani and Maryam M. Shanechi
 Shanechi Lab, University of Southern California
 """
+import warnings
 
 import numpy as np
 from scipy import linalg
 
 from . import LSSM
+from . import PrepModel
 
 def projOrth(A, B):
     """
@@ -130,8 +132,10 @@ def fitCzViaKFRegression(s, Y, Z, time_first):
     Cz = projOrth(ZTF.T, xHat.T)[1]
     return Cz
 
-
-def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fit_Cz_via_KF=True, time_first=True):
+def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, \
+                fit_Cz_via_KF=True, time_first=True, 
+                remove_mean_Y=True, remove_mean_Z=True, 
+                zscore_Y=False, zscore_Z=False) -> LSSM:
     """
     PSID PSID: Preferential Subspace Identification Algorithm
     Identifies a linear stochastic model for a signal y, while prioritizing
@@ -195,6 +199,16 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fit_Cz_vi
                 of the data to be the first dimension (e.g. Z is T x nz). If false, 
                 will expect time to be the second dimension in all data 
                 (e.g. Z is nz x T).
+        - (10) remove_mean_Y: if True will remove the mean of Y. 
+                    Must be True if data is not zero mean. Defaults to True.
+        - (11) remove_mean_Z: if True will remove the mean of Z. 
+                    Must be True if data is not zero mean. Defaults to True.
+        - (12) zscore_Y: if True will z-score Y. It is ok to set this to False,
+                    but setting to true may help with stopping some dimensions of 
+                    data from dominating others. Defaults to True.
+        - (13) zscore_Z: if True will z-score Z. It is ok to set this to False,
+                    but setting to true may help with stopping some dimensions of 
+                    data from dominating others. Defaults to True.
     Outputs:
         - (1) idSys: an LSSM object with the system parameters for 
                 the identified system. Will have the following 
@@ -209,6 +223,15 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fit_Cz_vi
         [idSys, WS] = PSID(Y, Z, nx, n1, i, WS, return_WS=True)
         idSysSID = PSID(Y, Z, nx, 0, i)     # Set n1=0 for SID
     """
+    YPrepModel = PrepModel.PrepModel()
+    YPrepModel.fit(Y, remove_mean=remove_mean_Y, zscore=zscore_Y, time_first=time_first)
+    Y = YPrepModel.apply(Y, time_first=time_first)
+    
+    ZPrepModel = PrepModel.PrepModel()
+    if Z is not None:
+        ZPrepModel.fit(Z, remove_mean=remove_mean_Z, zscore=zscore_Z, time_first=time_first)
+        Z = ZPrepModel.apply(Z, time_first=time_first)
+    
     ny, ySamples, N, y1, NTot = getHSize(Y, i, time_first=time_first)
     if Z is not None:
         nz, zSamples, _, z1, NTot = getHSize(Z, i, time_first=time_first)
@@ -216,7 +239,6 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fit_Cz_vi
         nz, zSamples = 0, 0
 
     if isinstance(N, list) and np.any(np.array(N) < 1):
-        import warnings
         warnings.warn('{} of the {} data segments will be discarded because they are too short for using with a horizon of {}.'.format(np.sum(np.array(N) < 1), len(N), i), )
 
     if  'NTot' in WS and WS['NTot'] == NTot and \
@@ -360,7 +382,10 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, fit_Cz_vi
     if fit_Cz_via_KF and nz > 0:
         Cz = fitCzViaKFRegression(s, Y, Z, time_first)
     s.Cz = Cz
-    
+
+    s.YPrepModel = YPrepModel
+    s.ZPrepModel = ZPrepModel
+
     if not return_WS:
         return s
     else:
