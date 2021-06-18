@@ -17,6 +17,7 @@ from matplotlib import patches
 import PSID
 from PSID.evaluation import evalPrediction
 from PSID.MatHelper import loadmat
+from PSID.PrepModel import PrepModel
 
 def main():
     sample_model_path = os.path.join(os.path.dirname(PSID.__file__), 'example', 'sample_model.mat')
@@ -37,7 +38,9 @@ def main():
     # Let's first generate some sample data from this model
     np.random.seed(42) # For exact reproducibility
     
-    N = int(2e4)
+    N = int(2e4)    # Total number of samples, the more data you have,
+                    # the more accurate the identification will be
+
     trueSys = PSID.LSSM(params=data['trueSys'])
     y, x = trueSys.generateRealization(N)
     z = (trueSys.Cz @ x.T).T
@@ -48,6 +51,20 @@ def main():
     z += eps
     
     allYData, allZData = y, z
+
+    # Given the stable state-space model used by PSID, it is important for the neural/behavior data to be zero-mean. 
+    # Starting version v1.1.0, PSID by default internally removes the mean from the neural/behavior data and adds
+    # it back to predictions, so the user does not need to handle this preprocessing. If the data is already zero-mean,
+    # this mean-removal will simply subtract and add zeros to signals so everything will still work.
+    # To cover this general case with data that is not zero-mean, only for this simultion, let's artificially add 
+    # some non-zero mean to the sample data:
+    YMean = 10*np.random.randn(allYData.shape[-1])
+    ZMean = 10*np.random.randn(allZData.shape[-1])
+    allYData += YMean
+    allZData += ZMean
+    # Also reflect this in the true model:
+    trueSys.YPrepModel = PrepModel(mean=YMean, remove_mean=True)
+    trueSys.ZPrepModel = PrepModel(mean=ZMean, remove_mean=True)
     
     # Separate data into training and test data:
     trainInds = np.arange(np.round(0.5*allYData.shape[0]), dtype=int)
@@ -62,18 +79,18 @@ def main():
     idSys1 = PSID.PSID(yTrain, zTrain, nx=2, n1=2, i=10)
     # You can also use the time_first=False argument if time is the second dimension:
     # idSys1 = PSID.PSID(yTrain.T, zTrain.T, nx=2, n1=2, i=10, time_first=False) 
-
+    
     # Predict behavior using the learned model
     zTestPred1, yTestPred1, xTestPred1 = idSys1.predict(yTest)
 
-    # Compute CC of decoding
-    CC = evalPrediction(zTest, zTestPred1, 'CC')
+    # Compute R2 of decoding
+    R2 = evalPrediction(zTest, zTestPred1, 'R2')
 
     # Predict behavior using the true model for comparison
     zTestPredIdeal, yTestPredIdeal, xTestPredIdeal = trueSys.predict(yTest)
-    CCIdeal = evalPrediction(zTest, zTestPredIdeal, 'CC')
+    R2Ideal = evalPrediction(zTest, zTestPredIdeal, 'R2')
 
-    print('Behavior decoding CC:\n  PSID => {:.3g}, Ideal using true model => {:.3g}'.format(np.mean(CC), np.mean(CCIdeal)) )
+    print('Behavior decoding R2:\n  PSID => {:.3g}, Ideal using true model => {:.3g}'.format(np.mean(R2), np.mean(R2Ideal)) )
     
     ## (Example 2) Optionally, PSID can additionally also learn the 
     # behaviorally irrelevant latent states (with nx = 4, n1 = 2)
@@ -81,9 +98,9 @@ def main():
 
     # In addition to ideal behavior decoding, this model will also have ideal neural self-prediction 
     zTestPred2, yTestPred2, xTestPred2 = idSys2.predict(yTest)
-    yCC2 = evalPrediction(yTest, yTestPred2, 'CC')
-    yCCIdeal = evalPrediction(yTest, yTestPredIdeal, 'CC')
-    print('Neural self-prediction CC:\n  PSID => {:.3g}, Ideal using true model => {:.3g}'.format(np.mean(yCC2), np.mean(yCCIdeal)))
+    yR22 = evalPrediction(yTest, yTestPred2, 'R2')
+    yR2Ideal = evalPrediction(yTest, yTestPredIdeal, 'R2')
+    print('Neural self-prediction R2:\n  PSID => {:.3g}, Ideal using true model => {:.3g}'.format(np.mean(yR22), np.mean(yR2Ideal)))
 
     ## (Example 3) PSID can be used if data is available in discontinuous segments (e.g. different trials)
     # In this case, y and z data segments must be provided as elements of a list
@@ -119,10 +136,10 @@ def main():
         zPredA = np.concatenate( (zPredA, zPredThis), axis=0)
         zPredIdealA = np.concatenate( (zPredIdealA, zPredThisIdeal), axis=0)
 
-    CCTrialBased = evalPrediction(zTestA, zPredA, 'CC')
-    CCTrialBasedIdeal = evalPrediction(zTestA, zPredIdealA, 'CC')
+    R2TrialBased = evalPrediction(zTestA, zPredA, 'R2')
+    R2TrialBasedIdeal = evalPrediction(zTestA, zPredIdealA, 'R2')
 
-    print('Behavior decoding CC (trial-based learning/decoding):\n  PSID => {:.3g}, Ideal using true model = {:.3g}'.format(np.mean(CCTrialBased), np.mean(CCTrialBasedIdeal)) )
+    print('Behavior decoding R2 (trial-based learning/decoding):\n  PSID => {:.3g}, Ideal using true model = {:.3g}'.format(np.mean(R2TrialBased), np.mean(R2TrialBasedIdeal)) )
 
     # #########################################
     # Plot the true and identified eigenvalues    
