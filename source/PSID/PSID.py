@@ -43,7 +43,7 @@ def blkhankskip(Y, i, j=None, s=0, time_first=True):
     Constructs block Hankel matrices from the provided data Y
     """
     if isinstance(Y, (list, tuple)):
-        if j == None:
+        if j is None:
             j = [None for yi in range(len(Y))]
         H = None
         for yInd in range(len(Y)):
@@ -56,8 +56,8 @@ def blkhankskip(Y, i, j=None, s=0, time_first=True):
                 H = np.concatenate( (H, thisH), axis=1 )
     else:
         ny, N = getHSize(Y, i, time_first=time_first)[:2]
-        if j == None: 
-            j = N - i + 1
+        if j is None: 
+            j = N - 2*i + 1
         H = np.empty((ny * i, j))
         for r in range(i):
             if time_first:
