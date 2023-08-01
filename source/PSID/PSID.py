@@ -29,9 +29,14 @@ def projOrth(A, B):
                 W = ABCrossCov @ np.linalg.pinv(BCov) # or: A / B = A * B.' * pinv(B * B.')
                 isOk = True
             except Exception as e:
-                print('Error: "{}". Will retry...'.format(e))
+                print(e)
+                try:
+                    W = ABCrossCov @ linalg.pinv(BCov)
+                    isOk = True
+                except Exception as e:
+                    print(e)
         if not isOk:
-            raise(Exception(e))
+            raise(Exception(f'Could not find the projection! Data length may be too small.'))
         AHat = W @ B  # or: A * B.' * pinv(B * B.') * B
     else:
         W = np.zeros( (A.shape[0], B.shape[1]) )
