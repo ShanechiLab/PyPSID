@@ -43,7 +43,7 @@ def blkhankskip(Y, i, j=None, s=0, time_first=True):
     Constructs block Hankel matrices from the provided data Y
     """
     if isinstance(Y, (list, tuple)):
-        if j == None:
+        if j is None:
             j = [None for yi in range(len(Y))]
         H = None
         for yInd in range(len(Y)):
@@ -54,9 +54,11 @@ def blkhankskip(Y, i, j=None, s=0, time_first=True):
                 H = thisH
             else:
                 H = np.concatenate( (H, thisH), axis=1 )
+        if H is None:
+            raise(Exception(f'All data segments were too short. Use a smaller horizon (currently {s}) or longer data segments'))
     else:
         ny, N = getHSize(Y, i, time_first=time_first)[:2]
-        if j == None: 
+        if j is None: 
             j = N - i + 1
         H = np.empty((ny * i, j))
         for r in range(i):
@@ -187,6 +189,8 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, \
                 nx <= ny * i
                 So if you have a low dimensional y or z, you typically would choose larger 
                 values for i, and vice versa.
+                i Can also be a list, tuple, or array indicating [iY,iZ], in which case
+                different horizons will be used for Y and Z.
         - (6) WS: the WS output from a previous call using the exact 
                 same data. If calling PSID repeatedly with the same data 
                 and horizon, several computationally costly steps can be 
@@ -223,6 +227,13 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, \
         [idSys, WS] = PSID(Y, Z, nx, n1, i, WS, return_WS=True)
         idSysSID = PSID(Y, Z, nx, 0, i)     # Set n1=0 for SID
     """
+    if not isinstance(i, (list, tuple, np.ndarray)):
+        i = [i]
+    iAll = np.array(i)
+    iY = int(iAll[0])  # Horizon for Y
+    iZ = iY if iAll.size < 2 else int(iAll[1])  # Horizon for Z
+    iMax = np.max([iY,iZ])
+    
     YPrepModel = PrepModel.PrepModel()
     YPrepModel.fit(Y, remove_mean=remove_mean_Y, zscore=zscore_Y, time_first=time_first)
     Y = YPrepModel.apply(Y, time_first=time_first)
@@ -232,9 +243,9 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, \
         ZPrepModel.fit(Z, remove_mean=remove_mean_Z, zscore=zscore_Z, time_first=time_first)
         Z = ZPrepModel.apply(Z, time_first=time_first)
     
-    ny, ySamples, N, y1, NTot = getHSize(Y, i, time_first=time_first)
+    ny, ySamples, N, y1, NTot = getHSize(Y, iMax, time_first=time_first)
     if Z is not None:
-        nz, zSamples, _, z1, NTot = getHSize(Z, i, time_first=time_first)
+        nz, zSamples, _, z1, NTot = getHSize(Z, iMax, time_first=time_first)
     else:
         nz, zSamples = 0, 0
 
@@ -243,7 +254,8 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, \
 
     if  'NTot' in WS and WS['NTot'] == NTot and \
         'N' in WS and WS['N'] == N and \
-        'i' in WS and WS['i'] == i and \
+        'iY' in WS and WS['iY'] == iY and \
+        'iZ' in WS and WS['iZ'] == iZ and \
         'ySamples' in WS and WS['ySamples'] == ySamples and \
         'zSamples' in WS and WS['zSamples'] == zSamples and \
         'Y1' in WS and WS['Y1'] == y1 and \
@@ -254,7 +266,7 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, \
         WS = {
             'NTot': NTot,
             'N': N,
-            'i': i,
+            'i': i, 'iY': iY, 'iZ': iZ, 
             'ySamples': ySamples,
             'Y1': y1
         }
@@ -263,20 +275,20 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, \
             WS['Z1'] = z1
 
     if 'Yp' not in WS or WS['Yp'] is None:
-        WS['Yp'] = blkhankskip(Y, i, N, time_first=time_first)
-        WS['Yii'] = blkhankskip(Y, 1, N, i, time_first=time_first)
+        WS['Yp'] = blkhankskip(Y, iY, N, iMax-iY, time_first=time_first)
+        WS['Yii'] = blkhankskip(Y, 1, N, iMax, time_first=time_first)
         if nz > 0:
-            WS['Zii'] = blkhankskip(Z, 1, N, i, time_first=time_first)
+            WS['Zii'] = blkhankskip(Z, 1, N, iMax, time_first=time_first)
     
     if n1 > nx:
         n1 = nx  # n1 can at most be nx
 
     # Stage 1
     if n1 > 0 and nz > 0:
-        if n1 > i*nz:
-            raise(Exception('n1 (currently {}) must be at most i*nz={}*{}={}. Use a larger horizon i.'.format(n1,i,nz,i*nz)))
+        if n1 > iZ*nz:
+            raise(Exception('n1 (currently {}) must be at most iZ*nz={}*{}={}. Use a larger behavior horizon iZ.'.format(n1,iZ,nz,iZ*nz)))
         if 'ZHat_U' not in WS or WS['ZHat_U'] is None:
-            Zf = blkhankskip(Z, i, N, i, time_first=time_first)
+            Zf = blkhankskip(Z, iZ, N, iMax, time_first=time_first)
             WS['ZHat'] = projOrth(Zf, WS['Yp'])[0] # Zf @ WS['Yp'].T @ np.linalg.pinv(WS['Yp'] @ WS['Yp'].T) @ WS['Yp']  # Eq. (10)
             Yp_Plus = np.concatenate((WS['Yp'], WS['Yii']))
             Zf_Minus = Zf[nz:, :]
@@ -301,13 +313,13 @@ def PSID(Y, Z=None, nx=None, n1=0, i=None, WS=dict(), return_WS=False, \
     # Stage 2
     n2 = nx - n1     
     if n2 > 0:
-        if nx > i*ny:
-            raise(Exception('nx (currently {}) must be at most i*ny={}*{}={}. Use a larger horizon i.'.format(nx,i,ny,i*ny)))
+        if nx > iY*ny:
+            raise(Exception('nx (currently {}) must be at most iY*ny={}*{}={}. Use a larger neural horizon iY.'.format(nx,iY,ny,iY*ny)))
         if 'YHat_U' not in WS or WS['YHat_U'] is None or \
             'n1' not in WS or WS['n1'] != n1:
             WS['n1'] = n1
             
-            Yf = blkhankskip(Y, i, N, i, time_first=time_first)
+            Yf = blkhankskip(Y, iY, N, iMax, time_first=time_first)
             Yf_Minus = Yf[ny:, :]
 
             if n1 > 0: # Have already extracted some states, so remove the already predicted part of Yf
