@@ -3,6 +3,7 @@ scipy
 matplotlib
 
 # Dev tools
+scikit-learn  # Used for tests
 mat73 # Used for loading v7.3 mat files
 pur # For dependency list updates to requirements.txt
 pytest # For unit tests
