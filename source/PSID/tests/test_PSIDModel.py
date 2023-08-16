@@ -4,7 +4,7 @@ See full notice in LICENSE.md
 Omid G. Sani and Maryam M. Shanechi
 Shanechi Lab, University of Southern California
 
-Tests the PSID function
+Tests the PSIDModel class
 """
 
 import unittest
@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from scipy import linalg
 import numpy as np
 
-from PSID.PSID import PSID as SubspacePSID
+from PSID.PSIDModel import PSIDModel
 from PSID.PrepModel import PrepModel
 from PSID.sim_tools import getSysSettingsFromSysCode, generateRandomLinearModel
 from PSID.evaluation import evalSysId, computeLSSMIdError
@@ -30,9 +30,8 @@ class TestPSID(unittest.TestCase):
         sysCode = 'nyR1_10_nzR1_10_NxR1_2_N1R0_2'
         sysSettings = getSysSettingsFromSysCode(sysCode)
         
-        N = int(1e6)
-        # horizon = 10
-        horizon = [9, 11]
+        N = int(1e4)
+        iY, iZ = 9, 11 # Neural/Behavior Horizons
 
         failInds = []
         failErrs = []
@@ -45,9 +44,10 @@ class TestPSID(unittest.TestCase):
                 Y, X = s.generateRealizationWithKF(N)
                 Z = s.generateObservationFromStates(X, u=None, param_names=['Cz', 'Dz'])
                     
-                sId = SubspacePSID(Y, Z, nx=s.state_dim, n1=s.zDims.size, i=horizon, time_first=True)
-                sId.zDims = np.arange(1, 1+min([s.zDims.size, s.state_dim]))
+                sId = PSIDModel(nx=s.state_dim, n1=s.zDims.size, iY=iY, iZ=iZ)
+                sId.fit(Y, Z, time_first=True)
                 err = evalSysId(sId, Y, Z, Y, Z, trueSys=s)[0]
+                err.update( computeLSSMIdError(s, sId.model) )
 
                 params = ['AErrNormed', 'CErrNormed', 'GErrNormed', 'YCovErrNormed', 'KErrNormed']
                 if s.zDims.size > 0:
@@ -58,18 +58,19 @@ class TestPSID(unittest.TestCase):
                 ZMean = np.random.randn(Z.shape[-1])*100
                 Y = Y - np.mean(Y, axis=0)
                 Z = Z - np.mean(Z, axis=0)
-                sId3 = SubspacePSID(Y+YMean, Z+ZMean, nx=s.state_dim, n1=s.zDims.size, i=horizon, time_first=True)
-                sId3.zDims = np.arange(1, 1+min([s.zDims.size, s.state_dim]))
+                sId3 = PSIDModel(nx=s.state_dim, n1=s.zDims.size, iY=iY, iZ=iZ)
+                sId3.fit(Y+YMean, Z+ZMean, time_first=True)
                 sWithMeans = copy.deepcopy(s)
                 sWithMeans.YPrepModel = PrepModel(YMean, remove_mean=True)
                 sWithMeans.ZPrepModel = PrepModel(ZMean, remove_mean=True)
                 err3 = evalSysId(sId3, Y+YMean, Z+ZMean, Y+YMean, Z+ZMean, trueSys=sWithMeans)[0]
-                
+                err3.update( computeLSSMIdError(sWithMeans, sId3.model) )
 
                 # Test that it also works if time_first = False
-                sId4 = SubspacePSID((Y+YMean).T, (Z+ZMean).T, nx=s.state_dim, n1=s.zDims.size, i=horizon, time_first=False)
-                sId4.zDims = np.arange(1, 1+min([s.zDims.size, s.state_dim]))
+                sId4 = PSIDModel(nx=s.state_dim, n1=s.zDims.size, iY=iY, iZ=iZ)
+                sId4.fit((Y+YMean).T, (Z+ZMean).T, time_first=False)
                 err4 = evalSysId(sId4, Y+YMean, Z+ZMean, Y+YMean, Z+ZMean, trueSys=sWithMeans)[0]
+                err4.update( computeLSSMIdError(sWithMeans, sId4.model) )
 
                 # Test decoding
                 allZp, allYp, allXp = sId3.predict(Y+YMean, U=None)
@@ -77,12 +78,25 @@ class TestPSID(unittest.TestCase):
                 # np.testing.assert_allclose(innovCovEmp, s.innovCov, rtol=1e-1)
 
                 sId3_cp = copy.deepcopy(sId3)
-                sId3_cp.YPrepModel = None
-                sId3_cp.ZPrepModel = None
+                sId3_cp.model.YPrepModel = None
+                sId3_cp.model.ZPrepModel = None
                 allZp2, allYp2, allXp2 = sId3_cp.predict(Y, U=None)
-                
+
+                # Test that it also works with trial based data
+                sId2 = PSIDModel(nx=s.state_dim, n1=s.zDims.size, iY=iY, iZ=iZ)
+                num_trials = 10
+                trial_samples = list(np.random.randint(0.9 * N/num_trials, 1.1 * N/num_trials, num_trials-1))
+                trial_samples.append(N - sum(trial_samples))
+                YTrials = [Y[:trial_samples[0], :]] + [Y[np.cumsum(trial_samples)[tInd-1]:np.cumsum(trial_samples)[tInd], :] for tInd, samples in enumerate(trial_samples) if tInd > 0]
+                ZTrials = [Z[:trial_samples[0], :]] + [Z[np.cumsum(trial_samples)[tInd-1]:np.cumsum(trial_samples)[tInd], :] for tInd, samples in enumerate(trial_samples) if tInd > 0]
+                sId2.fit(YTrials, ZTrials, time_first=True)
+                err2 = evalSysId(sId2, Y, Z, Y, Z, trueSys=s)[0]
+                err2.update( computeLSSMIdError(s, sId2.model) )
+
+
                 try:
                     np.testing.assert_array_less([err[p] for p in params], 5e-2, err_msg='Error too large for some params {}'.format(params))
+                    np.testing.assert_array_less([err2[p] for p in params], 5e-2, err_msg='Error too large for some params {}'.format(params))
                     np.testing.assert_array_less([err3[p] for p in params], 5e-2, err_msg='Error too large for some params {}'.format(params))
                     np.testing.assert_array_less([err4[p] for p in params], 5e-2, err_msg='Error too large for some params {}'.format(params))
 
@@ -99,7 +113,7 @@ class TestPSID(unittest.TestCase):
             print('{} => Ok: Tested with {} random systems, all were ok!'.format(self.id(), numTests))
                 
 
-    def test_PSID_doest_change_inputs(self):
+    def test_PSIDModelFit_doest_change_inputs(self):
         np.random.seed(42)
 
         N = int(1e3)
@@ -126,11 +140,17 @@ class TestPSID(unittest.TestCase):
             ZBU = copy.deepcopy(Z)
             UBU = copy.deepcopy(U)
 
-            sId = SubspacePSID(Y, Z, nx=nx, n1=n1, i=horizon, time_first=True)
+            sId = PSIDModel(nx=nx, n1=n1, iY=horizon)
+            sId.fit(Y, Z, time_first=True)
             np.testing.assert_equal(Y, YBU)
             np.testing.assert_equal(Z, ZBU)
             np.testing.assert_equal(U, UBU)
 
+            sId = PSIDModel(nx=nx, n1=n1, iY=horizon)
+            sId.fit(Y, Z, time_first=True)
+            np.testing.assert_equal(Y, YBU)
+            np.testing.assert_equal(Z, ZBU)
+            np.testing.assert_equal(U, UBU)
                 
 
 if __name__ == '__main__':

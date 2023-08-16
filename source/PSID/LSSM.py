@@ -817,6 +817,15 @@ class LSSM:
         return allXp
     
     def predict(self, Y, U=None, useXFilt=None, useXSmooth=None, **kwargs):
+        if isinstance(Y, (list,tuple)): # If segments of data are provided as a list
+            for trialInd, trialY in enumerate(Y):
+                trialOuts = self.predict(trialY, U=U if U is None else U[trialInd], useXFilt=useXFilt, useXSmooth=useXSmooth, **kwargs)
+                if trialInd == 0:
+                    outs = [[o] for oi, o in enumerate(trialOuts)]
+                else:
+                    outs = [outs[oi]+[o] for oi, o in enumerate(trialOuts)]
+            return tuple(outs)
+        # If only one data segment is provided
         if hasattr(self, 'yPrepModel') and self.yPrepModel is not None:
             Y = np.array( self.yPrepModel.predict(Y) )
         if useXSmooth==True or (useXSmooth is None and hasattr(self, 'predictWithXSmooth') and self.predictWithXSmooth):

@@ -56,3 +56,84 @@ def getBlockIndsFromBLKSArray(BLKS):
     ), axis=1)
 
     return groups
+
+def prepare_fold_inds(num_folds, N):
+    folds = []
+    N_test = int(N/num_folds)
+    for fold_ind in range(num_folds):
+        test_inds = np.arange(N_test*fold_ind, N_test*(1+fold_ind) if fold_ind < (num_folds-1) else N)
+        train_inds = np.where(~np.isin( np.arange(N), test_inds ))[0]
+        folds.append( {
+            'num_folds': num_folds,
+            'fold': fold_ind+1,
+            'test_inds': test_inds,
+            'train_inds': train_inds,
+        } )
+    return folds
+
+def applyFuncIf(Y, func):
+    """Applies a function on Y itself if Y is an array or on each element of Y if it is a list/tuple of arrays.
+
+    Args:
+        Y (np.array or list or tuple): input data or list of input data arrays.
+
+    Returns:
+        np.array or list or tuple: transformed Y or list of transformed arrays.
+    """    
+    if Y is None:
+        return None
+    elif isinstance(Y, (list, tuple)):
+        return [func(YThis) for YThis in Y]
+    else:
+        return func(Y)
+
+def transposeIf(Y):
+    """Transposes Y itself if Y is an array or each element of Y if it is a list/tuple of arrays.
+
+    Args:
+        Y (np.array or list or tuple): input data or list of input data arrays.
+
+    Returns:
+        np.array or list or tuple: transposed Y or list of transposed arrays.
+    """    
+    if Y is None:
+        return None
+    elif isinstance(Y, (list, tuple)):
+        return [transposeIf(YThis) for YThis in Y]
+    else:
+        return Y.T
+
+def subtractIf(X, Y):
+    """Subtracts Y from X if X is an array, or subtracts each element of Y from 
+    each corresponding element of X if they are list/tuple of arrays.
+
+    Args:
+        X (np.array or list or tuple): input data or list of input data arrays.
+        Y (np.array or list or tuple): input data or list of input data arrays.
+
+    Returns:
+        np.array or list or tuple: X - Y or list of X - Ys
+    """    
+    if Y is None:
+        return X
+    if isinstance(X, (list, tuple)):
+        return [X[i]-Y[i] for i in range(len(X))]
+    else:
+        return X-Y
+
+def catIf(Y, axis=None):
+    """If Y is a list of arrays, will concatenate them otherwise returns Y
+
+    Args:
+        Y (np.array or list or tuple): input data or list of input data arrays.
+
+    Returns:
+        np.array or list or tuple: transposed Y or list of transposed arrays.
+    """    
+    if Y is None:
+        return None
+    elif isinstance(Y, (list, tuple)):
+        return np.concatenate(Y, axis=axis)
+    else:
+        return Y
+
