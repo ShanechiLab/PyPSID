@@ -56,7 +56,7 @@ def main():
     # Starting version v1.1.0, PSID by default internally removes the mean from the neural/behavior data and adds
     # it back to predictions, so the user does not need to handle this preprocessing. If the data is already zero-mean,
     # this mean-removal will simply subtract and add zeros to signals so everything will still work.
-    # To cover this general case with data that is not zero-mean, only for this simultion, let's artificially add 
+    # To cover this general case with data that is not zero-mean, only for this simulation, let's artificially add 
     # some non-zero mean to the sample data:
     YMean = 10*np.random.randn(allYData.shape[-1])
     ZMean = 10*np.random.randn(allZData.shape[-1])
