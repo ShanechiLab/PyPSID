@@ -96,7 +96,8 @@ Outputs:
 - xPred: Extracted latent state
 
 ## Required preprocessing
-A required preprocessing when using (I)PSID is to remove the mean of neural/behavior/input signals and if needed, add them back to neural/behavior predictions after learning the model. Starting from version 1.1.0, Python (I)PSID and MATLAB PSID libraries automatically do this by default so that users won't need to worry about it. Please update to the latest version if you are using an older version.
+- Repeated data dimensions (e.g., two identical neurons) can cause issues for the learning. Remove repeated data dimensions as a preprocessing and repeat predictions as needed to reproduce prediction of repeated data dimensions. 
+- A required preprocessing when using (I)PSID is to remove the mean of neural/behavior/input signals and if needed, add them back to neural/behavior predictions after learning the model. Starting from version 1.1.0, Python (I)PSID and MATLAB PSID libraries automatically do this by default so that users won't need to worry about it. Please update to the latest version if you are using an older version.
 
 ## Choosing the hyperparameters
 ### How to pick the state dimensions nx and n1?
