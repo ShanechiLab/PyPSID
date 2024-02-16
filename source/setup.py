@@ -6,9 +6,12 @@
 # pip install -i https://test.pypi.org/simple/ PSID --upgrade
 # python -m twine upload --repository pypi dist/*
 
-import setuptools
+import setuptools, os
 
-with open("../README.md", "r", encoding="utf-8") as fh:
+dir_path = os.path.dirname(os.path.realpath(__file__))
+
+readme_file_path = os.path.join(dir_path, '..', 'README.md')
+with open(readme_file_path, "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
