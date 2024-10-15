@@ -143,8 +143,8 @@ class LSSM:
                 self.YCov = self.C @ self.XCov @ self.C.T + self.R
                 self.YCov = (self.YCov + self.YCov.T)/2
             else:
-                self.XCov = np.eye(self.A.shape); self.XCov[:] = np.nan
-                self.YCov = np.eye(self.C.shape); self.YCov[:] = np.nan
+                self.XCov = np.eye(self.state_dim); self.XCov[:] = np.nan
+                self.YCov = np.eye(self.output_dim); self.YCov[:] = np.nan
 
             try:
                 self.Pp = linalg.solve_discrete_are(self.A.T, self.C.T, self.Q, self.R, s=self.S) # Solves Katayama eq. 5.42a

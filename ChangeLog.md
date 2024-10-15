@@ -1,6 +1,8 @@
 # Changes 
 Versioning follows [semver](https://semver.org/).
 
+- v1.2.5:
+  - Fixes minor `numpy.eye` error that was thrown for unstable learned models.
 - v1.2.0:
   - Adds version with support for external input (i.e., IPSID).
 - v1.1.0:
