@@ -21,7 +21,7 @@ base_dir = os.path.join(dir_path)
 # with open(requirements_file_path, "r", encoding="utf-8") as fh:
 #     requirements = fh.read().split('\n')
 
-readme_file_path = os.path.join(base_dir, 'README.md')
+readme_file_path = os.path.join(base_dir, "README.md")
 with open(readme_file_path, "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
@@ -34,13 +34,13 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/ShanechiLab/PyPSID",
-    packages=setuptools.find_packages(where='source'),
+    packages=setuptools.find_packages(where="source"),
     package_dir={"": "source"},
     package_data={"PSID": ["*.mat"]},
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.6',
+    python_requires=">=3.6",
     # install_requires=requirements,
 )
