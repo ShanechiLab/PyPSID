@@ -136,7 +136,7 @@ The following notebook also contains some examples along with more descriptions:
 [source/example/IPSID_tutorial.ipynb](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/IPSID_tutorial.ipynb)
 
 # Change Log
-You can see the change log in in [ChangeLog.md](https://github.com/ShanechiLab/PyPSID/blob/main/ChangeLog.md)  
+You can see the change log in [ChangeLog.md](https://github.com/ShanechiLab/PyPSID/blob/main/ChangeLog.md)  
 
 # Licence
 Copyright (c) 2020 University of Southern California  
