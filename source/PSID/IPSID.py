@@ -720,7 +720,7 @@ def IPSID(
         w = Xk_Plus1[:n1, :] - XkP1Hat[:n1, :]  # Eq.(33)
     else:
         A = np.empty([0, 0])
-        w = np.empty([0, N])
+        w = np.empty([0, NTot])
 
     if n2 > 0:
         # A associated with the other states (X2)
