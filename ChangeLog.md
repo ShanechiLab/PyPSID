@@ -1,6 +1,8 @@
 # Changes 
 Versioning follows [semver](https://semver.org/).
 
+- v1.2.6:
+  - Fixes minor error in variable init for trial-based ISID.
 - v1.2.5:
   - Fixes minor `numpy.eye` error that was thrown for unstable learned models.
 - v1.2.0:
