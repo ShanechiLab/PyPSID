@@ -9,6 +9,7 @@ dchrisrayner AT gmail DOT com
 
 Optimal linear 'bottlenecking' or 'multitask learning'.
 """
+
 import numpy as np
 from scipy import sparse
 
@@ -29,6 +30,7 @@ class ReducedRankRegressor(object):
     - rrank is a rank constraint.
     - reg is a regularization parameter (optional).
     """
+
     def __init__(self, X, Y, rank, reg=None):
         if np.size(np.shape(X)) == 1:
             X = np.reshape(X, (-1, 1))
@@ -45,7 +47,7 @@ class ReducedRankRegressor(object):
         self.A = np.dot(np.linalg.pinv(CXX), np.dot(CXY, self.W)).T
 
     def __str__(self):
-        return 'Reduced Rank Regressor (rank = {})'.format(self.rank)
+        return "Reduced Rank Regressor (rank = {})".format(self.rank)
 
     def predict(self, X):
         """Predict Y from X."""

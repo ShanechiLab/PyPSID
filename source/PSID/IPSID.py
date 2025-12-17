@@ -1,4 +1,4 @@
-""" 
+"""
 Copyright (c) 2020 University of Southern California
 See full notice in LICENSE.md
 Parsa Vahidi, Omid G. Sani and Maryam M. Shanechi
