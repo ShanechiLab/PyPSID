@@ -1,8 +1,14 @@
 # Changes 
 Versioning follows [semver](https://semver.org/).
 
-- v1.2.0:
+- v1.3.0:
   - Add support for using different horizons for neural/behavior data. 
+- v1.2.6:
+  - Fixes minor error in variable init for trial-based ISID.
+- v1.2.5:
+  - Fixes minor `numpy.eye` error that was thrown for unstable learned models.
+- v1.2.0:
+  - Adds version with support for external input (i.e., IPSID).
 - v1.1.0:
   - Automatically does the necessary mean-removal preprocessing for input neural/behavior data. Automatically adds back the learned means to predicted signals. 
 - v1.0.6:
