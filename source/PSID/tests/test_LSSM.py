@@ -81,6 +81,8 @@ class TestLSSM(unittest.TestCase):
             plt.legend()
             """
             mse.append(np.mean((Y - Yp) ** 2))
+
+            # Verify stochastic and predictor realizations match
             np.testing.assert_almost_equal(Y, Yp, decimal=10)
             # np.testing.assert_equal(Y, Yp)
             # np.testing.assert_allclose(Y, Yp, rtol=1e-3)
@@ -105,6 +107,8 @@ class TestLSSM(unittest.TestCase):
         out = (np.array([[0.6479, 0.0861], [0.6025, -0.1736]]), True)
 
         P, has_solution = solveric(**inp)
+
+        # Verify solveric result against known solution
         np.testing.assert_equal(out[1], has_solution)
         np.testing.assert_allclose(out[0], P, rtol=1e-3)
 
@@ -128,6 +132,7 @@ class TestLSSM(unittest.TestCase):
                     s.A.T, s.C.T, s.Q, s.R, s=s.S, return_log=True
                 )
 
+                # Verify iterative solver matches scipy implementation
                 np.testing.assert_almost_equal(Pp1, Pp2)
                 np.testing.assert_almost_equal(0, PpNormChanges[-1])
 
@@ -153,6 +158,7 @@ class TestLSSM(unittest.TestCase):
                 etcBlock = np.copy(s.A_KC)
                 etcBlock[:n1, n1:] = 0
                 try:
+                    # Verify predictor form structure
                     np.testing.assert_almost_equal(trBlock, np.zeros_like(trBlock))
                     np.testing.assert_allclose(
                         (s.A_KC - etcBlock) / np.linalg.norm(etcBlock),
@@ -313,6 +319,7 @@ class TestLSSM(unittest.TestCase):
                     filtered_state_means_2, filtered_state_covariances_2 = kf.filter(Y)
                     smoothed_state_means_2, smoothed_state_covariances_2 = kf.smooth(Y)
 
+                    # Verify against pykalman
                     np.testing.assert_allclose(
                         filtered_state_means, filtered_state_means_2, rtol=1e-3
                     )
@@ -511,6 +518,7 @@ class TestLSSM(unittest.TestCase):
                 # """
 
                 try:
+                    # Verify Forward-Backward smoother matches RTS
                     np.testing.assert_allclose(allXp, allXpFB, rtol=1e-4)
                     np.testing.assert_allclose(allXs, allXsFB, rtol=1e-4)
                     np.testing.assert_allclose(allPs, allPsFB, rtol=1e-4)

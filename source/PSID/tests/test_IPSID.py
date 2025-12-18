@@ -158,6 +158,7 @@ class TestIPSID(unittest.TestCase):
                 allZp2, allYp2, allXp2 = sId3_cp.predict(Y, U=U)
 
                 try:
+                    # Verify identification errors are within tolerance
                     np.testing.assert_array_less(
                         [err[p] for p in params],
                         5e-2,
@@ -179,6 +180,7 @@ class TestIPSID(unittest.TestCase):
                         err_msg="Error too large for some params {}".format(params),
                     )
 
+                    # Verify decoding accuracy
                     np.testing.assert_allclose(allXp2, allXp, rtol=1e-3)
                     np.testing.assert_allclose(allZp2, allZp - ZMean, atol=1e-6)
                     np.testing.assert_allclose(allYp2, allYp - YMean, atol=1e-6)
@@ -263,6 +265,7 @@ class TestIPSID(unittest.TestCase):
                     else:
                         print("Ok")
                     print("Done")
+                    # Verify eigenvalues are within unit circle
                     np.testing.assert_array_less(eigsAbs, 1)
 
         if failInds:

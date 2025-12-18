@@ -120,6 +120,7 @@ class TestPSID(unittest.TestCase):
                 allZp2, allYp2, allXp2 = sId3_cp.predict(Y, U=None)
 
                 try:
+                    # Verify identification errors are within tolerance
                     np.testing.assert_array_less(
                         [err[p] for p in params],
                         5e-2,
@@ -141,6 +142,7 @@ class TestPSID(unittest.TestCase):
                         err_msg="Error too large for some params {}".format(params),
                     )
 
+                    # Verify decoding accuracy
                     np.testing.assert_allclose(allXp2, allXp, rtol=1e-3)
                     np.testing.assert_allclose(allZp2, allZp - ZMean, atol=1e-6)
                     np.testing.assert_allclose(allYp2, allYp - YMean, atol=1e-6)
@@ -192,6 +194,7 @@ class TestPSID(unittest.TestCase):
             UBU = copy.deepcopy(U)
 
             sId = SubspacePSID(Y, Z, nx=nx, n1=n1, i=horizon, time_first=True)
+            # Verify input data remains unchanged
             np.testing.assert_equal(Y, YBU)
             np.testing.assert_equal(Z, ZBU)
             np.testing.assert_equal(U, UBU)
