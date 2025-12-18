@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 def dict_get_either(d, fieldNames, defaultVal=None):
+    """Retrieves the first found key from a list of possible keys in a dictionary.
+
+    Args:
+        d (dict): The dictionary to search.
+        fieldNames (list): List of keys to look for.
+        defaultVal (any, optional): Value to return if no key is found. Defaults to None.
+
+    Returns:
+        any: The value corresponding to the first found key, or defaultVal.
+    """
     for f in fieldNames:
         if f in d:
             return d[f]
@@ -27,6 +37,16 @@ def dict_get_either(d, fieldNames, defaultVal=None):
 
 
 def genRandomGaussianNoise(N, Q, m=None):
+    """Generates random Gaussian noise with a given covariance.
+
+    Args:
+        N (int): Number of samples.
+        Q (np.ndarray): Covariance matrix.
+        m (np.ndarray, optional): Mean vector. Defaults to None (zeros).
+
+    Returns:
+        tuple: (noise samples, shaping matrix used)
+    """
     Q2 = np.atleast_2d(Q)
     dim = Q2.shape[0]
     if m is None:
@@ -49,6 +69,17 @@ def genRandomGaussianNoise(N, Q, m=None):
 def solve_discrete_are_iterative(
     a, b, q, r, s=None, thr=1e-12, max_iter=10000, return_log=False
 ):
+    """Solves the Discrete Algebraic Riccati Equation iteratively.
+
+    Args:
+        a, b, q, r, s: System matrices (A, B, Q, R, S).
+        thr (float): Convergence threshold.
+        max_iter (int): Maximum iterations.
+        return_log (bool): Whether to return convergence log.
+
+    Returns:
+        np.ndarray: Solution matrix P.
+    """
     A = a.T
     C = b.T
     Q, R, S = q, r, s
@@ -149,6 +180,20 @@ def solveric(A, G, C, L0):
 
 
 def solve_Faurres_realization_problem(A, C, G, L0):
+    """Solves the stochastic realization problem using Faurre's algorithm.
+
+    Args:
+        A (np.ndarray): System matrix.
+        C (np.ndarray): Observation matrix.
+        G (np.ndarray): Next state-output covariance.
+        L0 (np.ndarray): Output covariance.
+
+    Returns:
+        Q (np.ndarray): Process noise covariance.
+        R (np.ndarray): Observation noise covariance.
+        S (np.ndarray): Cross covariance.
+        sig (np.ndarray): State covariance (solution to ARE).
+    """
     [minSig, has_solution1] = solveric(
         A, G, C, L0
     )  # From Katayama page 191, Algorithm 2
@@ -212,6 +257,17 @@ def solve_Faurres_realization_problem(A, C, G, L0):
 
 
 def makeMatrixBlockDiagonal(A, n1=None, name="A", ignore_error=False):
+    """Converts a matrix to block diagonal form based on provided block sizes.
+
+    Args:
+        A (np.ndarray): The matrix to be block-diagonalized.
+        n1 (int, optional): Size of the first block. Defaults to None.
+        name (str, optional): Name of the matrix for error logging. Defaults to "A".
+        ignore_error (bool, optional): If True, suppresses errors. Defaults to False.
+
+    Returns:
+        E (np.ndarray): The similarity transformation matrix.
+    """
     eigs = np.linalg.eigvals(A)
     if n1 is not None:
         # Important: we select n1 eigvals for the top to allow proper n1 vs n2 blocking
@@ -245,6 +301,13 @@ def makeMatrixBlockDiagonal(A, n1=None, name="A", ignore_error=False):
 
 
 class LSSM:
+    """Linear State Space Model class.
+
+    Represents a linear dynamical system of the form:
+    x(k+1) = A x(k) + B u(k) + w(k)
+    y(k)   = C x(k) + D u(k) + v(k)
+    """
+
     def __init__(
         self,
         output_dim=None,
@@ -254,6 +317,16 @@ class LSSM:
         randomizationSettings=None,
         missing_marker=None,
     ):
+        """Initializes the LSSM object.
+
+        Args:
+            output_dim (int, optional): Dimension of the output (y). Defaults to None.
+            state_dim (int, optional): Dimension of the state (x). Defaults to None.
+            input_dim (int, optional): Dimension of the input (u). Defaults to 0.
+            params (dict, optional): Dictionary containing model parameters (A, C, Q, R, S, etc.). Defaults to None.
+            randomizationSettings (dict, optional): Settings for random initialization if params is None. Defaults to None.
+            missing_marker (float, optional): Value indicating missing data. Defaults to None.
+        """
         self.output_dim = output_dim
         self.state_dim = state_dim
         self.input_dim = input_dim
@@ -265,7 +338,11 @@ class LSSM:
         self.verbose = False
 
     def setParams(self, params={}):
+        """Sets the parameters of the LSSM.
 
+        Args:
+            params (dict): Dictionary of parameters (A, C, Q, R, etc.).
+        """
         A = dict_get_either(params, ["A", "a"])
         A = np.atleast_2d(A)
 
@@ -362,6 +439,11 @@ class LSSM:
             self.predictWithXFilt = False  # If True (and predictWithXSmooth = False), the predict method will use filtered x unless an useXSmooth=False argument is passed.
 
     def changeParams(self, params={}):
+        """Updates the LSSM parameters.
+
+        Args:
+            params (dict): Dictionary of parameters to update.
+        """
         curParams = self.getListOfParams()
         for f, v in curParams.items():
             if f not in params:
@@ -369,6 +451,11 @@ class LSSM:
         self.setParams(params)
 
     def getListOfParams(self):
+        """Returns a dictionary of all model parameters.
+
+        Returns:
+            dict: Dictionary of parameters.
+        """
         params = {}
         for field in dir(self):
             val = self.__getattribute__(field)
@@ -379,6 +466,11 @@ class LSSM:
         return params
 
     def randomize(self, randomizationSettings=None):
+        """Randomizes the model parameters.
+
+        Args:
+            randomizationSettings (dict, optional): Settings for random initialization. Defaults to None.
+        """
         if randomizationSettings is None:
             randomizationSettings = dict()
 
@@ -550,6 +642,10 @@ class LSSM:
                 pass
 
     def update_secondary_params(self):
+        """Updates secondary parameters (G, YCov, etc.) based on primary parameters (A, C, Q, R).
+
+        Solves Lyapunov or Riccati equations as needed.
+        """
         if self.Q is not None and self.state_dim > 0:  # Given QRS
             try:
                 A_Eigs = linalg.eig(self.A)[0]
@@ -623,6 +719,11 @@ class LSSM:
             self.A_KC = self.A
 
     def getBackwardModel(self):
+        """Computes the backward-time LSSM.
+
+        Returns:
+            LSSM: The backward-time equivalent model.
+        """
         # Sources:
         # - Katayama Lemma 4.12
         # - VODM page 63, backward model, Fig. 3.5
@@ -650,6 +751,11 @@ class LSSM:
         return bw
 
     def isStable(self):
+        """Checks if the system matrix A is stable (all eigenvalues inside unit circle).
+
+        Returns:
+            bool: True if stable, False otherwise.
+        """
         return np.all(np.abs(self.eigenvalues) < 1)
 
     def generateObservationFromStates(
@@ -717,6 +823,16 @@ class LSSM:
     def generateObservationNoiseRealization(
         self, N, cov_param_name=None, sys_param_name=None
     ):
+        """Generates a realization of observation noise.
+
+        Args:
+            N (int): Number of samples.
+            cov_param_name (str, optional): Name of covariance parameter attributes.
+            sys_param_name (str, optional): Name of system parameter attribute (for colored noise).
+
+        Returns:
+            np.ndarray: Generated noise.
+        """
         err = None
 
         if cov_param_name is not None and hasattr(self, cov_param_name):
@@ -734,6 +850,17 @@ class LSSM:
         return err
 
     def generateZRealizationFromStates(self, X=None, U=None, N=None, return_err=False):
+        """Generates Z observations from state sequence.
+
+        Args:
+            X (np.ndarray, optional): State sequence.
+            U (np.ndarray, optional): Input sequence.
+            N (int, optional): Number of samples.
+            return_err (bool, optional): Whether to return error term individually.
+
+        Returns:
+            np.ndarray: Generated Z.
+        """
         if X is not None or U is not None:
             Z = self.generateObservationFromStates(
                 X, u=U, param_names=["Cz", "Dz"], prep_model_param="ZPrepModel"
@@ -767,6 +894,17 @@ class LSSM:
         reset_x_on_blowup=False,
         randomize_x_on_blowup=False,
     ):
+        """Generates a realization using Q, R, S covariances.
+
+        Args:
+            N (int): Number of time steps.
+            x0, u0: Initial conditions.
+            u (np.ndarray): Input sequence.
+            return_z (bool): If True, returns Z.
+
+        Returns:
+            tuple: Generated data (Y, X, ...)
+        """
         QRS = np.block([[self.Q, self.S], [self.S.T, self.R]])
         wv, self.QRSShaping = genRandomGaussianNoise(N, QRS)
         w = wv[:, : self.state_dim]
@@ -849,6 +987,24 @@ class LSSM:
         reset_x_on_blowup=False,
         randomize_x_on_blowup=False,
     ):
+        """Generates a realization of data using the Kalman Filter.
+
+        Args:
+            N (int): Number of time steps to generate.
+            x0 (np.ndarray, optional): Initial state. Defaults to None.
+            u0 (np.ndarray, optional): Initial input. Defaults to None.
+            u (np.ndarray, optional): Input data sequence. Defaults to None.
+            e (np.ndarray, optional): Innovation noise sequence. Defaults to None.
+            return_z (bool, optional): If True, returns Z observation. Defaults to False.
+            return_z_err (bool, optional): If True, returns Z observation error. Defaults to False.
+            return_noise (bool, optional): If True, returns noise sequence. Defaults to False.
+            blowup_threshold (float, optional): Threshold for state blowup. Defaults to inf.
+            reset_x_on_blowup (bool, optional): If True, resets state on blowup. Defaults to False.
+            randomize_x_on_blowup (bool, optional): If True, randomizes state on blowup. Defaults to False.
+
+        Returns:
+            tuple: Generated data (Y, X, [Z, ZErr, noise])
+        """
         if e is None:
             e, innovShaping = genRandomGaussianNoise(N, self.innovCov)
         if x0 is None:
@@ -911,6 +1067,16 @@ class LSSM:
         return out
 
     def generateRealization(self, N, random_x0=False, **kwargs):
+        """Generates a realization of the system (simulation).
+
+        Args:
+            N (int): Number of time steps.
+            random_x0 (bool, optional): If True, uses random initial state. Defaults to False.
+            **kwargs: Additional arguments passed to generateRealizationWithQRS or generateRealizationWithKF.
+
+        Returns:
+            tuple: Generated data (Y, X, ...)
+        """
         if random_x0 and "x0" not in kwargs and self.state_dim > 0:
             if not np.any(np.isnan(self.XCov)):
                 kwargs["x0"] = np.atleast_2d(
@@ -1163,6 +1329,23 @@ class LSSM:
     def forwardBackwardSmoother(
         self, Y, U=None, x0=None, P0=None, steady_state=True, return_state_cov=False
     ):
+        """Runs the Forward-Backward smoother (Rauch-Tung-Striebel smoother).
+
+        Args:
+            Y (np.ndarray): Observation time series.
+            U (np.ndarray, optional): Input time series. Defaults to None.
+            x0 (np.ndarray, optional): Initial state. Defaults to None.
+            P0 (np.ndarray, optional): Initial state covariance. Defaults to None.
+            steady_state (bool, optional): If True, uses steady state assumptions. Defaults to True.
+            return_state_cov (bool, optional): If True, returns state covariances. Defaults to False.
+
+        Returns:
+            allXp (np.ndarray): Predicted states.
+            allYp (np.ndarray): Predicted observations.
+            allX (np.ndarray): Filtered states.
+            allXs (np.ndarray): Smoothed states.
+            [allPp, allPf, allPs] (np.ndarray): Covariances (if return_state_cov is True).
+        """
         # First run the Kalman forward pass and get the covs
         allXp, allYp, allX, allPp, allPf = self.kalman(
             Y, U, x0=x0, P0=P0, steady_state=steady_state, return_state_cov=True
@@ -1224,6 +1407,15 @@ class LSSM:
             return allXp, allYp, allX, allXs, allPp, allPf, allPs
 
     def propagateStates(self, allXp, step_ahead=1):
+        """Propagates the system states forward in time.
+
+        Args:
+            allXp (np.ndarray): Current state estimates.
+            step_ahead (int, optional): Number of steps to propagate. Defaults to 1.
+
+        Returns:
+            allXp (np.ndarray): Propagated states.
+        """
         for step in range(step_ahead - 1):
             if (
                 hasattr(self, "multi_step_with_A_KC") and self.multi_step_with_A_KC
@@ -1368,6 +1560,11 @@ class LSSM:
         return outputs
 
     def applySimTransform(self, E):
+        """Applies a similarity transformation to the model parameters.
+
+        Args:
+            E (np.ndarray): The transformation matrix.
+        """
         EInv = np.linalg.inv(E)
 
         ALikeFields = {"A"}
@@ -1409,6 +1606,15 @@ class LSSM:
         self.update_secondary_params()
 
     def makeSimilarTo(self, s2, N=10000):
+        """Transforms this model to be similar (in terms of state basis) to another model s2.
+
+        Args:
+            s2 (LSSM): The target LSSM model to match.
+            N (int, optional): Number of samples for generation if needed. Defaults to 10000.
+
+        Returns:
+            E (np.ndarray): The transformation matrix used.
+        """
         Y, X = s2.generateRealization(N)
         xPredTrg = s2.kalman(Y)[0]
         xPredSrc = self.kalman(Y)[0]
@@ -1418,12 +1624,25 @@ class LSSM:
         return E
 
     def makeCanonical(self):
+        """Transforms the model into a canonical form (e.g., using Schur decomposition).
+
+        Returns:
+            E (np.ndarray): The transformation matrix used.
+        """
         J, EInv = linalg.schur(self.A, output="real")
         E = np.linalg.inv(EInv)
         self.applySimTransform(E)
         return E
 
     def makeA_KCBlockDiagonal(self, ignore_error=False):
+        """Block-diagonalizes A and K*C based on provided blocks.
+
+        Args:
+            ignore_error (bool, optional): If True, ignores errors during diagonalization. Defaults to False.
+
+        Returns:
+            E (np.ndarray): The transformation matrix used.
+        """
         n1 = (
             len(self.zDims)
             if hasattr(self, "zDims") and isinstance(self.zDims, (list, np.ndarray))
@@ -1434,6 +1653,14 @@ class LSSM:
         return E
 
     def makeABlockDiagonal(self, ignore_error=False):
+        """Block-diagonalizes the A matrix based on provided blocks.
+
+        Args:
+            ignore_error (bool, optional): If True, ignores errors during diagonalization. Defaults to False.
+
+        Returns:
+            E (np.ndarray): The transformation matrix used.
+        """
         n1 = (
             len(self.zDims)
             if hasattr(self, "zDims") and isinstance(self.zDims, (list, np.ndarray))

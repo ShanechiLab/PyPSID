@@ -19,6 +19,18 @@ logger = logging.getLogger(__name__)
 
 
 def extractRangeParamFromSysCode(sysCode, prefix="", rangeIndicator="R"):
+    """Extracts a range parameter from a system code string.
+
+    Args:
+        sysCode (str): The system code string.
+        prefix (str, optional): The prefix of the parameter. Defaults to "".
+        rangeIndicator (str, optional): The indicator for a range of values. Defaults to "R".
+
+    Returns:
+        tuple: A tuple containing:
+            - paramVals (list): The extracted range of values.
+            - pos (tuple): The start and end positions of the match.
+    """
     regex = re.compile(
         prefix + rangeIndicator + "([\\d\\.e+-]+)_([\\d\\.e+-]+)"
     )  # NxR1_10
@@ -41,6 +53,14 @@ def extractRangeParamFromSysCode(sysCode, prefix="", rangeIndicator="R"):
 
 
 def getSysSettingsFromSysCode(sysCode):
+    """Parses system settings from a system code string.
+
+    Args:
+        sysCode (str): The system code string.
+
+    Returns:
+        sysSettings (dict): A dictionary containing the parsed system settings.
+    """
     sysSettings = {}
     prefixFieldPairs = [
         ("Nx", "nxVals"),
@@ -105,6 +125,17 @@ def getSysSettingsFromSysCode(sysCode):
 
 
 def generateRandomLinearModel(sysSettings):
+    """Generates a random linear state space model (LSSM) based on provided settings.
+
+    Args:
+        sysSettings (dict): Dictionary of settings derived from system code.
+
+    Returns:
+        tuple: A tuple containing:
+            - s (LSSM): The generated linear system.
+            - sysU (LSSM): The input model (if any).
+            - zErrSys (LSSM): The Z error model (if any).
+    """
     if sysSettings["nxVals"] is not None and len(sysSettings["nxVals"]):
         nx = np.random.choice(sysSettings["nxVals"])
         n1 = (

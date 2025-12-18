@@ -61,7 +61,7 @@ def computeObsFromAC(A, C, i):
 
 def recomputeObsAndStates(A, C, i, YHat, YHatMinus):
     """
-    Computes observabilioty matrices Oy and Oy_Minus using A and C
+    Computes observability matrices Oy and Oy_Minus using A and C
     and recompute Xk and Xk_Plus1 using the new Oy and Oy_Minus
     Returns:
     1) Xk: recomputed states

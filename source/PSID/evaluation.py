@@ -195,6 +195,16 @@ def computeEigIdError(trueEigs, idEigVals, measure="NFN"):
     permut = itertools.permutations(trueEigs)
 
     def computeErr(trueValue, prediction, measure):
+        """Computes error between true and predicted values.
+
+        Args:
+            trueValue: Ground truth.
+            prediction: Predicted values.
+            measure: Error measure type ('NFN').
+
+        Returns:
+            float: Computed error.
+        """
         if measure == "NFN":
             perf = np.sqrt(
                 np.sum(np.abs(prediction - trueValue) ** 2, axis=1)
@@ -238,6 +248,15 @@ def computeLSSMIdError(sTrue, sId_in):
         )  # TEMP CM!!! This was needed to be commented temporarily to test something for avoiding error
 
         def matrixErrNorm(trueX, idX):
+            """Computes normalized Frobenius norm error between matrices.
+
+            Args:
+                trueX: True matrix.
+                idX: Identified/Estimated matrix.
+
+            Returns:
+                float: Normalized error.
+            """
             errX = idX - trueX
             errN = np.nan
             try:

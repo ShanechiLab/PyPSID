@@ -19,7 +19,10 @@ numTests = 100  # Increase this for a slower but more thorough test
 
 
 class TestPrepModel(unittest.TestCase):
+    """Unit tests for the PrepModel class."""
+
     def test_preprocessing(self):
+        """Tests basic preprocessing (z-scoring) functionality."""
         from PSID.PrepModel import PrepModel
 
         np.random.seed(42)
@@ -76,6 +79,7 @@ class TestPrepModel(unittest.TestCase):
                         np.testing.assert_almost_equal(recoveredData, dataCopy)
 
     def test_preprocessing_for_segmented_data(self):
+        """Tests preprocessing with segmented data."""
         from PSID.PrepModel import PrepModel
 
         np.random.seed(42)

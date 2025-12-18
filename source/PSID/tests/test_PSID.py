@@ -26,7 +26,10 @@ numTests = 10  # Increase this for a slower but more thorough test
 
 
 class TestPSID(unittest.TestCase):
+    """Unit tests for the PSID function."""
+
     def test_PSID(self):
+        """Tests the PSID main logic."""
         np.random.seed(42)
 
         sysCode = "nyR1_10_nzR1_10_NxR1_2_N1R0_2"
@@ -161,6 +164,7 @@ class TestPSID(unittest.TestCase):
             )
 
     def test_PSID_doest_change_inputs(self):
+        """Tests that PSID does not modify input data."""
         np.random.seed(42)
 
         N = int(1e3)

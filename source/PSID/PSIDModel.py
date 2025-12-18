@@ -237,11 +237,16 @@ def get_shape(Y):
 
 
 class PSIDModel:
+    """Class for identifying and using Preferential Subspace Identification (PSID) models.
+
+    Provides methods for fitting models to data, hyperparameter selection, and prediction (filtering/smoothing).
+    """
+
     def __init__(
         self,
         nx=None,  # Total number of states
         n1=None,  # Number of states to be extracted in the first stage (behaviorally relevant)
-        i=None,  # An array of [iY, iZ]. Will be ignored is iY or iZ is not None
+        i=None,  # An array of [iY, iZ]. Will be ignored if iY or iZ is not None
         iY=None,  # Neural horizon
         iZ=None,  # Behavior horizon
         hyper_param_settings=None,  # Settings for hyper-parameter selection
@@ -480,7 +485,7 @@ class PSIDModel:
         self.info = {"trained": True, "idTime": idTime}
 
     def remove_hyper_param_results(self):
-        """Removes results from hyperparameter search to reduce model foot print
+        """Removes results from hyperparameter search to reduce model footprint
         These results are only useful for studying the hyperparameter search process,
         and are not needed for using the model with final selected hyperparameters.
         """

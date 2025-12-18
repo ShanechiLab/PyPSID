@@ -87,7 +87,7 @@ class PrepModel:
         """Returns the std, but transposes it if needed
 
         Args:
-            time_first (bool, optional): If true, will return the std a row vector,
+            time_first (bool, optional): If true, will return the std as a row vector,
                         otherwise returns it as a row vector. Defaults to True.
         """
         if time_first:

@@ -26,7 +26,10 @@ numTests = 10  # Increase this for a slower but more thorough test
 
 
 class TestIPSID(unittest.TestCase):
+    """Unit tests for the IPSID class."""
+
     def test_IPSID(self):
+        """Tests the IPSID algorithm."""
         np.random.seed(42)
 
         sysCode = "nyR1_10_nzR1_10_nuR0_2_NxR1_2_N1R0_2"
@@ -189,6 +192,7 @@ class TestIPSID(unittest.TestCase):
             )
 
     def test_IPSID_enforce_stability(self):
+        """Tests that IPSID enforces stability constraints."""
         np.random.seed(42)
 
         sysCode = "nyR1_10_nzR1_10_nuR0_2_NxR1_4_N1R0_4"

@@ -11,6 +11,16 @@ import numpy as np
 
 
 def extractDiagonalBlocks(A, emptySide="both", absThr=np.spacing(1)):
+    """Extracts diagonal blocks from a matrix.
+
+    Args:
+        A (np.ndarray): Input matrix.
+        emptySide (str, optional): Constraints on off-diagonal blocks ('both', 'upper', 'lower', 'either'). Defaults to "both".
+        absThr (float, optional): Threshold for considering a value as zero. Defaults to machine epsilon.
+
+    Returns:
+        BLKS (np.ndarray): Array of block sizes.
+    """
     if emptySide == "either":
         BLKSU = extractDiagonalBlocks(A, "upper", absThr)
         BLKSL = extractDiagonalBlocks(A, "lower", absThr)
@@ -52,6 +62,14 @@ def extractDiagonalBlocks(A, emptySide="both", absThr=np.spacing(1)):
 
 
 def getBlockIndsFromBLKSArray(BLKS):
+    """Converts a block size array into block indices.
+
+    Args:
+        BLKS (np.ndarray): Array of block sizes.
+
+    Returns:
+        groups (np.ndarray): 2xN array of start and end indices for each block.
+    """
     if len(BLKS) == 0:
         return np.empty(0, dtype=int)
 
@@ -68,6 +86,15 @@ def getBlockIndsFromBLKSArray(BLKS):
 
 
 def prepare_fold_inds(num_folds, N):
+    """Prepares train/test indices for K-fold cross-validation.
+
+    Args:
+        num_folds (int): Number of folds.
+        N (int): Total number of samples.
+
+    Returns:
+        folds (list): List of dictionaries, each containing 'test_inds' and 'train_inds'.
+    """
     folds = []
     N_test = int(N / num_folds)
     for fold_ind in range(num_folds):

@@ -28,8 +28,11 @@ numTests = 100  # Increase this for a slower but more thorough test
 
 
 class TestLSSM(unittest.TestCase):
+    """Unit tests for the LSSM class."""
+
     #############################################
     def test_generateRealizationWithKF(self):
+        """Tests data realization generation using Kalman Filter."""
         sysCode = f"20230424_1_nu1_nxu1_ny1_nz1_Nx1_N11_1_Ne1_1_yNScL1e-0_zSNRLR1e-0_1e+0"  # with input
         # sysCode = f'20230424_1_ny1_nz1_Nx1_N11_1_Ne1_1_yNScL1e-0_zSNRLR1e-0_1e+0' # without input
 
@@ -86,6 +89,7 @@ class TestLSSM(unittest.TestCase):
         print("done!")
 
     def test_solveric(self):
+        """Tests the Riccati equation solver (solveric)."""
         inp = {
             "A": np.array([[1.6931, -0.6328], [0.7111, 0.3927]]),
             "C": np.array([[-0.6978, -0.6595], [2.0193, 0.7715], [-1.7937, -0.8203]]),
@@ -105,6 +109,7 @@ class TestLSSM(unittest.TestCase):
         np.testing.assert_allclose(out[0], P, rtol=1e-3)
 
     def test_solve_discrete_are_iterative(self):
+        """Tests the iterative Discrete ARE solver."""
         np.random.seed(42)
 
         sysCode = "nyR1_10_nzR1_10_nuR0_10_NxR1_10_N1R0_10"
@@ -127,6 +132,7 @@ class TestLSSM(unittest.TestCase):
                 np.testing.assert_almost_equal(0, PpNormChanges[-1])
 
     def test_LSSM_randomize_in_predictor_form(self):
+        """Tests LSSM randomization in predictor form."""
         np.random.seed(42)
 
         sysCode = "nyR1_5_nzR1_5_nuR0_3_NxR1_5_N1R0_5"
@@ -173,6 +179,7 @@ class TestLSSM(unittest.TestCase):
             )
 
     def test_LSSM_makeA_KCBlockDiagonal(self):
+        """Tests block diagonalization of A_KC matrix."""
         np.random.seed(42)
 
         sysCode = "nyR1_5_nzR1_5_nuR0_3_NxR1_5_N1R0_5"
@@ -221,6 +228,7 @@ class TestLSSM(unittest.TestCase):
             )
 
     def test_kalmanFilterAndSmoothingForS0Nu0(self):
+        """Tests Kalman Filter and Smoothing against pykalman baseline (S=0, Nu=0)."""
         from pykalman.standard import _filter, _smooth
 
         np.random.seed(42)
@@ -383,6 +391,7 @@ class TestLSSM(unittest.TestCase):
         pass
 
     def test_forwardBackwardSmootherBeingTheSameAsRTS(self):
+        """Tests that Forward-Backward smoother matches RTS smoother results."""
         np.random.seed(42)
 
         sysCode = "nyR5_10_nzR5_10_NxR1_10_N1_R1_10_NeR1_10_xNScLR1e-1_1e+1_yNScLR1e-1_1e+1_zSNRLR1e+0_1e+2_icdf_pbeta2_1_"
@@ -523,6 +532,7 @@ class TestLSSM(unittest.TestCase):
             )
 
     def test_getBackwardModel(self):
+        """Tests the backward model generation functionality."""
         np.random.seed(42)
 
         sysCode = "nyR1_10_nzR1_10_nuR0_0_NxR1_10_N1R0_10"
