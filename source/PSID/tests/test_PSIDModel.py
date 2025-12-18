@@ -21,7 +21,7 @@ from PSID.PrepModel import PrepModel
 from PSID.sim_tools import getSysSettingsFromSysCode, generateRandomLinearModel
 from PSID.evaluation import evalSysId, computeLSSMIdError
 
-numTests = 10
+numTests = 10  # Increase this for a slower but more thorough test
 
 
 class TestPSID(unittest.TestCase):

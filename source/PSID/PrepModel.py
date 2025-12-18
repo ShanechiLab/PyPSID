@@ -96,11 +96,11 @@ class PrepModel:
             return self.std[:, np.newaxis]
 
     def apply_segment(self, Y, time_first=True):
-        """Applies the preprocessing on new data
+        """Applies the preprocessing on new data segment
 
         Args:
             Y (numpy array): Input data. First dimension must be time and the second
-                                dimension is the data. Can be an array of data.
+                                dimension is the data. Can be an array of data segments.
             time_first (bool, optional): If False, will assume time is the second dimensions.
                                 Defaults to True.
         """
@@ -119,7 +119,7 @@ class PrepModel:
 
         Args:
             Y (numpy array or list of arrays): Input data. First dimension must be time and the second
-                                dimension is the data. Can be an array of data.
+                                dimension is the data. Can be an array of multiple data segments.
             time_first (bool, optional): If False, will assume time is the second dimensions.
                                 Defaults to True.
         """
@@ -129,11 +129,11 @@ class PrepModel:
             return self.apply_segment(Y, time_first)
 
     def apply_inverse_segment(self, Y, time_first=True):
-        """Applies inverse of the preprocessing on new data (i.e. undoes the preprocessing)
+        """Applies inverse of the preprocessing on new data segment (i.e. undoes the preprocessing)
 
         Args:
             Y (numpy array): Input data. First dimension must be time and the second
-                                dimension is the data. Can be an array of data.
+                                dimension is the data. Can be an array of multiple data segments.
             time_first (bool, optional): If False, will assume time is the second dimensions.
                                 Defaults to True.
         """
@@ -153,7 +153,7 @@ class PrepModel:
 
         Args:
             Y (numpy array or list of arrays): Input data. First dimension must be time and the second
-                                dimension is the data. Can be an array of data.
+                                dimension is the data. Can be an array of multiple data segments.
             time_first (bool, optional): If False, will assume time is the second dimensions.
                                 Defaults to True.
         """

@@ -27,7 +27,7 @@ class ReducedRankRegressor(object):
     Reduced Rank Regressor (linear 'bottlenecking' or 'multitask learning')
     - X is an n-by-d matrix of features.
     - Y is an n-by-D matrix of targets.
-    - rrank is a rank constraint.
+    - rank is a rank constraint.
     - reg is a regularization parameter (optional).
     """
 

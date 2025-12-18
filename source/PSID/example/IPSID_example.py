@@ -1,4 +1,4 @@
-""" 
+"""
 Copyright (c) 2020 University of Southern California
 See full notice in LICENSE.md
 Parsa Vahidi, Omid G. Sani and Maryam M. Shanechi
@@ -134,7 +134,7 @@ def main():
     # In this case, y, z and u data segments must be provided as elements of a list
     # Trials do not need to have the same number of samples
     # Here, for example assume that trials start at every 1000 samples.
-    # And each each trial has a random length of 900 to 990 samples
+    # And each trial has a random length of 900 to 990 samples
     trialStartInds = np.arange(0, allYData.shape[0] - 1000, 1000)
     trialDurRange = np.array([900, 990])
     trialDur = np.random.randint(
@@ -247,7 +247,7 @@ def main():
         facecolors="#b04c1a",
         label="(optional) IPSID Identified (stage 2)",
     )
-    ax.set_title("True and identified eigevalues")
+    ax.set_title("True and identified eigenvalues")
     ax.legend(bbox_to_anchor=(1.04, 0.5), loc="center left", borderaxespad=0)
     plt.show()
 
@@ -318,7 +318,7 @@ def main():
     uTest = allUData[testInds, :]
 
     ## (Example 3) IPSID with additional steps can be used to further
-    #  dissociate the intrinsic behaviorally relevant neural dynamics that
+    #  dissociate the intrinsic behaviorally relevant neural dynamics that are
     #  encoded in neural activity from those that are not.
 
     # all latent states [x1;x2,x3] (with nx = 6, n1 = 2, n3 = 2)
@@ -461,7 +461,7 @@ def main():
         label="(optional) IPSID Identified in optional additional step 2",
     )
 
-    ax.set_title("True and identified eigevalues")
+    ax.set_title("True and identified eigenvalues")
     ax.legend(bbox_to_anchor=(1.04, 0.5), loc="center left", borderaxespad=0)
     plt.show()
 
@@ -470,7 +470,7 @@ def main():
     # In this case, y, z and u data segments must be provided as elements of a list
     # Trials do not need to have the same number of samples
     # Here, for example assume that trials start at every 1000 samples.
-    # And each each trial has a random length of 900 to 990 samples
+    # And each trial has a random length of 900 to 990 samples
     trialStartInds = np.arange(0, allYData.shape[0] - 1000, 1000)
     trialDurRange = np.array([900, 990])
     trialDur = np.random.randint(

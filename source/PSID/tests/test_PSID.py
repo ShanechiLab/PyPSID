@@ -17,11 +17,12 @@ from scipy import linalg
 import numpy as np
 
 from PSID.PSID import PSID as SubspacePSID
+from PSID.IPSID import IPSID as SubspaceIPSID
 from PSID.PrepModel import PrepModel
 from PSID.sim_tools import getSysSettingsFromSysCode, generateRandomLinearModel
 from PSID.evaluation import evalSysId, computeLSSMIdError
 
-numTests = 10
+numTests = 10  # Increase this for a slower but more thorough test
 
 
 class TestPSID(unittest.TestCase):
@@ -31,9 +32,9 @@ class TestPSID(unittest.TestCase):
         sysCode = "nyR1_10_nzR1_10_NxR1_2_N1R0_2"
         sysSettings = getSysSettingsFromSysCode(sysCode)
 
-        N = int(1e6)
-        # horizon = 10
-        horizon = [9, 11]
+        N = int(1e5)
+        horizon = 10
+        horizon2 = [9, 11]
 
         failInds = []
         failErrs = []
@@ -49,8 +50,18 @@ class TestPSID(unittest.TestCase):
                 sId = SubspacePSID(
                     Y, Z, nx=s.state_dim, n1=s.zDims.size, i=horizon, time_first=True
                 )
-                sId.zDims = np.arange(1, 1 + min([s.zDims.size, s.state_dim]))
                 err = evalSysId(sId, Y, Z, Y, Z, trueSys=s)[0]
+
+                sId2 = SubspaceIPSID(
+                    Y,
+                    Z,
+                    U=None,
+                    nx=s.state_dim,
+                    n1=s.zDims.size,
+                    i=horizon2,
+                    time_first=True,
+                )
+                err2 = evalSysId(sId2, Y, Z, Y, Z, trueSys=s)[0]
 
                 params = [
                     "AErrNormed",
@@ -75,7 +86,6 @@ class TestPSID(unittest.TestCase):
                     i=horizon,
                     time_first=True,
                 )
-                sId3.zDims = np.arange(1, 1 + min([s.zDims.size, s.state_dim]))
                 sWithMeans = copy.deepcopy(s)
                 sWithMeans.YPrepModel = PrepModel(YMean, remove_mean=True)
                 sWithMeans.ZPrepModel = PrepModel(ZMean, remove_mean=True)
@@ -92,7 +102,6 @@ class TestPSID(unittest.TestCase):
                     i=horizon,
                     time_first=False,
                 )
-                sId4.zDims = np.arange(1, 1 + min([s.zDims.size, s.state_dim]))
                 err4 = evalSysId(
                     sId4, Y + YMean, Z + ZMean, Y + YMean, Z + ZMean, trueSys=sWithMeans
                 )[0]
@@ -110,6 +119,11 @@ class TestPSID(unittest.TestCase):
                 try:
                     np.testing.assert_array_less(
                         [err[p] for p in params],
+                        5e-2,
+                        err_msg="Error too large for some params {}".format(params),
+                    )
+                    np.testing.assert_array_less(
+                        [err2[p] for p in params],
                         5e-2,
                         err_msg="Error too large for some params {}".format(params),
                     )
@@ -174,6 +188,11 @@ class TestPSID(unittest.TestCase):
             UBU = copy.deepcopy(U)
 
             sId = SubspacePSID(Y, Z, nx=nx, n1=n1, i=horizon, time_first=True)
+            np.testing.assert_equal(Y, YBU)
+            np.testing.assert_equal(Z, ZBU)
+            np.testing.assert_equal(U, UBU)
+
+            sId = SubspaceIPSID(Y, Z, nx=nx, n1=n1, i=horizon, time_first=True)
             np.testing.assert_equal(Y, YBU)
             np.testing.assert_equal(Z, ZBU)
             np.testing.assert_equal(U, UBU)

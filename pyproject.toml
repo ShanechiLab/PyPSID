@@ -19,7 +19,9 @@ dependencies = [
     "scipy",
     "scikit-learn",
     "matplotlib",
-    "h5py"
+    "h5py",
+    "tqdm",
+    "mat73"
 ]
 dynamic = ["readme"]
 

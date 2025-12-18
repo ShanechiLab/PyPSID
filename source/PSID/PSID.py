@@ -10,8 +10,7 @@ import warnings
 import numpy as np
 from scipy import linalg
 
-from . import LSSM
-from . import PrepModel
+from . import LSSM, PrepModel
 
 
 def projOrth(A, B):
@@ -104,7 +103,7 @@ def getHSize(Y, i, time_first=True):
             ny, ySamples = Y.shape
         N = ySamples - 2 * i + 1
         NTot = N
-        if ySamples > 0:
+        if ySamples > 0 and ny > 0:
             y1 = Y.flatten()[0]
     else:
         ySamples = []
@@ -128,7 +127,7 @@ def getHSize(Y, i, time_first=True):
     return ny, ySamples, N, y1, NTot
 
 
-def fitCzViaKFRegression(s, Y, Z, time_first):
+def fitCzViaKFRegression(s, Y, Z, time_first, missing_marker=None):
     """
     Fits the behavior projection parameter Cz by first estimating
     the latent states with a Kalman filter and then using ordinary
@@ -157,7 +156,11 @@ def fitCzViaKFRegression(s, Y, Z, time_first):
             else:
                 xHat = np.concatenate((xHat, xHatThis), axis=0)
                 ZTF = np.concatenate((ZTF, ZTFThis), axis=0)
-    Cz = projOrth(ZTF.T, xHat.T)[1]
+    if missing_marker is not None:
+        isNotMissing = np.logical_not(np.any(ZTF == missing_marker, axis=1))
+    else:
+        isNotMissing = np.ones(ZTF.shape[0], dtype=bool)
+    Cz = projOrth(ZTF[isNotMissing, :].T, xHat[isNotMissing, :].T)[1]
     return Cz
 
 
@@ -175,6 +178,7 @@ def PSID(
     remove_mean_Z=True,
     zscore_Y=False,
     zscore_Z=False,
+    missing_marker=None,
 ) -> LSSM:
     """
     PSID PSID: Preferential Subspace Identification Algorithm
@@ -251,6 +255,9 @@ def PSID(
         - (13) zscore_Z: if True will z-score Z. It is ok to set this to False,
                     but setting to true may help with stopping some dimensions of
                     data from dominating others. Defaults to True.
+        - (14) missing_marker (default: None): if not None, will discard samples of Z that
+                equal to missing_marker when fitting Cz. Only effective if fit_Cz_via_KF is
+                True
     Outputs:
         - (1) idSys: an LSSM object with the system parameters for
                 the identified system. Will have the following
@@ -480,9 +487,11 @@ def PSID(
     Q = (Q + Q.T) / 2  # Make precisely symmetric
     R = (R + R.T) / 2  # Make precisely symmetric
 
-    s = LSSM.LSSM(params={"A": A, "C": Cy, "Q": Q, "R": R, "S": S})
+    s = LSSM.LSSM(
+        params={"A": A, "C": Cy, "Q": Q, "R": R, "S": S}, missing_marker=missing_marker
+    )
     if fit_Cz_via_KF and nz > 0:
-        Cz = fitCzViaKFRegression(s, Y, Z, time_first)
+        Cz = fitCzViaKFRegression(s, Y, Z, time_first, missing_marker=missing_marker)
     s.Cz = Cz
 
     s.YPrepModel = YPrepModel

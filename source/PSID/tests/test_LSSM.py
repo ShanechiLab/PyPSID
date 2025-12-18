@@ -13,13 +13,18 @@ import sys, os, copy
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from scipy import linalg
+from pathlib import Path
+
 import numpy as np
+from PSID.LSSM import genRandomGaussianNoise, solve_discrete_are_iterative, solveric
+from PSID.sim_tools import (
+    generateRandomLinearModel,
+    getSysSettingsFromSysCode,
+)
+from PSID.evaluation import evalPrediction
+from scipy import linalg
 
-from PSID.LSSM import solveric, solve_discrete_are_iterative, genRandomGaussianNoise
-from PSID.sim_tools import getSysSettingsFromSysCode, generateRandomLinearModel
-
-numTests = 100
+numTests = 100  # Increase this for a slower but more thorough test
 
 
 class TestLSSM(unittest.TestCase):
@@ -29,13 +34,10 @@ class TestLSSM(unittest.TestCase):
         # sysCode = f'20230424_1_ny1_nz1_Nx1_N11_1_Ne1_1_yNScL1e-0_zSNRLR1e-0_1e+0' # without input
 
         sysSettings = getSysSettingsFromSysCode(sysCode)
-        sysSettings["predictor_form"] = True
         mse = []
         for i in range(20):
             print("Working on model number {}".format(i + 1))
             s, sysU, zErrSys = generateRandomLinearModel(sysSettings)
-            # sOrig = copy.deepcopy(s)
-            # s = SSM(lssm=sOrig)
             N = int(2e2)
             x0 = None
             nu = s.input_dim
@@ -48,7 +50,6 @@ class TestLSSM(unittest.TestCase):
                 N, return_z=True, return_z_err=True, u=U, x0=x0
             )
             allXp, allYp, allXf = s.kalman(Y, U=U)
-            # eY, eYShaping = genRandomGaussianNoise(N, s.innovCov)
             eY = Y - allYp
             s.R = None
             Yp, Xp, Zp, eZp = s.generateRealization(
@@ -118,12 +119,12 @@ class TestLSSM(unittest.TestCase):
 
                 Pp1 = linalg.solve_discrete_are(s.A.T, s.C.T, s.Q, s.R, s=s.S)
                 Pp2 = solve_discrete_are_iterative(s.A.T, s.C.T, s.Q, s.R, s=s.S)
-                Pp3, log = solve_discrete_are_iterative(
+                Pp3, PpNormChanges = solve_discrete_are_iterative(
                     s.A.T, s.C.T, s.Q, s.R, s=s.S, return_log=True
                 )
 
                 np.testing.assert_almost_equal(Pp1, Pp2)
-                np.testing.assert_almost_equal(0, log[-1])
+                np.testing.assert_almost_equal(0, PpNormChanges[-1])
 
     def test_LSSM_randomize_in_predictor_form(self):
         np.random.seed(42)
@@ -226,7 +227,7 @@ class TestLSSM(unittest.TestCase):
 
         sysCode = "nyR1_5_nzR1_5_nuR0_0_NxR1_5_N1R0_5"
         sysSettings = getSysSettingsFromSysCode(sysCode)
-        sysSettings["S0"] = True
+        sysSettings["S0"] = True  # pykalman requires this
 
         failInds = []
         failErrs = []
@@ -247,6 +248,13 @@ class TestLSSM(unittest.TestCase):
                 else:
                     U = None
                 Y, X = sOrig.generateRealization(N, random_x0=True, u=U)
+
+                missing_prob = (ci % 2 == 0) * 0.5
+                if missing_prob > 0:
+                    is_missing = (np.random.rand(Y.shape[0]) < missing_prob)[
+                        :, np.newaxis
+                    ] * np.ones((1, Y.shape[-1]), dtype=bool)
+                    Y = np.ma.array(data=Y, mask=is_missing)
 
                 allXp, allYp, allXf, allXs, allPp, allPf, allPs = s.kalmanSmoother(
                     Y, U=U, steady_state=False, return_state_cov=True
@@ -339,8 +347,8 @@ class TestLSSM(unittest.TestCase):
                         allPs, smoothed_state_covariances3, rtol=1e-3
                     )
                 else:
-                    print(
-                        "Cannot test the S non-zero case or the input cases against pykalman"
+                    raise Exception(
+                        "Cannot test the S non-zero case or the input cases against pykalman. Adjust random system generation settings to force S=0 and no inputs."
                     )
 
                 errPred = np.atleast_2d(np.cov(allXp - X, rowvar=False))
@@ -373,6 +381,169 @@ class TestLSSM(unittest.TestCase):
             )
         )
         pass
+
+    def test_forwardBackwardSmootherBeingTheSameAsRTS(self):
+        np.random.seed(42)
+
+        sysCode = "nyR5_10_nzR5_10_NxR1_10_N1_R1_10_NeR1_10_xNScLR1e-1_1e+1_yNScLR1e-1_1e+1_zSNRLR1e+0_1e+2_icdf_pbeta2_1_"
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+        sysSettings["S0"] = True  # TEEEMP
+
+        # numTests = 100
+        failInds = []
+        failErrs = []
+        for ci in range(numTests):
+            with self.subTest(ci=ci):
+                sOrig, sysU, zErrSys = generateRandomLinearModel(sysSettings)
+                s = copy.deepcopy(sOrig)
+
+                # Compute performance metrics
+                N = int(100)
+                # x0 = None
+                x0 = np.random.randn(s.state_dim)
+                nu = s.input_dim
+                if nu > 0:
+                    U, XU = sysU.generateRealization(N=N)
+                else:
+                    U, XU = None, None
+
+                Y, X, Z, eZ = s.generateRealization(
+                    N, return_z=True, return_z_err=True, u=U, x0=x0
+                )
+
+                # RTS Smoother results
+                allXp, allYp, allXf, allXs, allPp, allPf, allPs = s.kalmanSmoother(
+                    Y, U=U, steady_state=False, return_state_cov=True
+                )
+
+                # Two-filter (forward-backward) smoother results
+                allXpFB, allYpFB, allXfFB, allXsFB, allPpFB, allPfFB, allPsFB = (
+                    s.forwardBackwardSmoother(
+                        Y, U=U, steady_state=False, return_state_cov=True
+                    )
+                )
+
+                Xp1_R2 = evalPrediction(X, allXp, "R2")
+                Xf1_R2 = evalPrediction(X, allXf, "R2")
+                Xs1_R2 = evalPrediction(X, allXs, "R2")
+                XpFB_R2 = evalPrediction(X, allXpFB, "R2")
+                XfFB_R2 = evalPrediction(X, allXfFB, "R2")
+                XsFB_R2 = evalPrediction(X, allXsFB, "R2")
+
+                xHatDiffR2 = evalPrediction(allXs, allXsFB, "R2")
+                covDiffR2 = evalPrediction(allPs[..., 0], allPsFB[..., 0], "R2")
+
+                """
+                import matplotlib.pyplot as plt
+
+                prop_cycle = plt.rcParams["axes.prop_cycle"]
+                colors = prop_cycle.by_key()["color"]
+                fig = plt.figure()
+                plt.plot(X[:, 0], "k", label="True x")
+                plt.plot(
+                    allXp[:, 0],
+                    color=colors[0],
+                    linestyle=":",
+                    label=f"Xp (prediction) R2={np.mean(Xp1_R2):.2f}",
+                )
+                plt.plot(
+                    allXf[:, 0],
+                    color=colors[0],
+                    linestyle="--",
+                    label=f"Xf (filtering) R2={np.mean(Xf1_R2):.2f}",
+                )
+                plt.plot(
+                    allXs[:, 0],
+                    color=colors[0],
+                    linestyle="-",
+                    label=f"Xs (RTS smoothing) R2={np.mean(Xs1_R2):.2f}",
+                )
+                plt.plot(
+                    allXsFB[:, 0],
+                    color=colors[1],
+                    linestyle=":",
+                    label=f"Xs (Two-filter info filt smoothing) R2={np.mean(XsFB_R2):.2f}",
+                )
+                plt.title(f"Diff between RTS and Two-filter: R2={xHatDiffR2[0]:.2f}")
+                plt.xlabel("Time step")
+                plt.ylabel("Estimated state (dim 1)")
+                plt.legend()
+
+                fig = plt.figure()
+                plt.plot(
+                    allPp[:, 0, 0],
+                    color=colors[0],
+                    linestyle=":",
+                    label="Cov of Xp (prediction)",
+                )
+                plt.plot(
+                    allPf[:, 0, 0],
+                    color=colors[0],
+                    linestyle="--",
+                    label="Cov of Xf (filtering)",
+                )
+                plt.plot(
+                    allPs[:, 0, 0],
+                    color=colors[0],
+                    linestyle="-",
+                    label="Cov of Xs (RTS smoothing)",
+                )
+                plt.plot(
+                    allPsFB[:, 0, 0],
+                    color=colors[1],
+                    linestyle=":",
+                    label="Cov of Xs (Two-filter info filt smoothing)",
+                )
+                plt.title(f"Diff between RTS and Two-filter: R2={covDiffR2[0]:.2f}")
+                plt.xlabel("Time step")
+                plt.ylabel("Error cov for estimated state (dim 1)")
+                plt.legend()
+                plt.show()
+                # """
+
+                try:
+                    np.testing.assert_allclose(allXp, allXpFB, rtol=1e-4)
+                    np.testing.assert_allclose(allXs, allXsFB, rtol=1e-4)
+                    np.testing.assert_allclose(allPs, allPsFB, rtol=1e-4)
+                except Exception as e:
+                    failInds.append(ci)
+                    failErrs.append(e)
+
+        if len(failInds) > 0:
+            print(
+                "{} => {}/{} random systems (indices: {}) failed: \n{}".format(
+                    self.id(), len(failInds), numTests, failInds, failErrs
+                )
+            )
+        else:
+            print(
+                "{} => Ok: Tested with {} random systems, all were ok!".format(
+                    self.id(), numTests
+                )
+            )
+
+    def test_getBackwardModel(self):
+        np.random.seed(42)
+
+        sysCode = "nyR1_10_nzR1_10_nuR0_0_NxR1_10_N1R0_10"
+        sysCode = "nyR5_10_nzR5_10_NxR1_10_N1_R1_10_NeR1_10_xNScLR1e-1_1e+1_yNScLR1e-1_1e+1_zSNRLR1e+0_1e+2_icdf_pbeta2_1_"
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+
+        # numTests = 100
+        failInds = []
+        failErrs = []
+        for ci in range(numTests):
+            with self.subTest(ci=ci):
+                sOrig, sysU, zErrSys = generateRandomLinearModel(sysSettings)
+                s = copy.deepcopy(sOrig)
+                sBW = s.getBackwardModel()
+
+                # Testing that the backward model has the same second order statistics (analytically) as the forward model
+                np.testing.assert_allclose(s.YCov, sBW.YCov, rtol=1e-5)
+                for d in range(10):
+                    YCCov_d = s.C @ s.A ** (d - 1) @ s.G
+                    YYCovBW_d = sBW.C @ sBW.A ** (d - 1) @ sBW.G
+                    np.testing.assert_allclose(YCCov_d, YYCovBW_d.T, rtol=1e-5)
 
 
 if __name__ == "__main__":

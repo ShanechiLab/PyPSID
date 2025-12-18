@@ -3,6 +3,7 @@ scipy
 scikit-learn # sklearn
 matplotlib
 h5py
+tqdm
 
 # Dev tools
 scikit-learn  # Used for tests

@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import numpy as np
 
+numTests = 100  # Increase this for a slower but more thorough test
+
 
 class TestPrepModel(unittest.TestCase):
     def test_preprocessing(self):
@@ -32,7 +34,7 @@ class TestPrepModel(unittest.TestCase):
 
         for args in arg_sets:
             with self.subTest(ci=args):
-                numTests = 100
+                # numTests = 100
                 for ci in range(numTests):
                     n_dim = np.random.randint(1, 10)
 
@@ -88,7 +90,7 @@ class TestPrepModel(unittest.TestCase):
 
         for args in arg_sets:
             with self.subTest(ci=args):
-                numTests = 100
+                # numTests = 100
                 for ci in range(numTests):
                     n_dim = np.random.randint(1, 10)
 

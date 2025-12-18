@@ -12,13 +12,16 @@ import os, copy, re, logging
 import numpy as np
 
 from .tools import extractDiagonalBlocks, getBlockIndsFromBLKSArray
+from .mode_tools import drawRandomPoles, generate_random_eigenvalues
 from .LSSM import LSSM
 
 logger = logging.getLogger(__name__)
 
 
-def extractRangeParamFromSysCode(sysCode, prefix=""):
-    regex = re.compile(prefix + "R([\\d\\.e+-]+)_([\\d\\.e+-]+)")  # NxR1_10
+def extractRangeParamFromSysCode(sysCode, prefix="", rangeIndicator="R"):
+    regex = re.compile(
+        prefix + rangeIndicator + "([\\d\\.e+-]+)_([\\d\\.e+-]+)"
+    )  # NxR1_10
     matches = re.finditer(regex, sysCode)
     paramVals = None
     pos = None
@@ -42,6 +45,10 @@ def getSysSettingsFromSysCode(sysCode):
     prefixFieldPairs = [
         ("Nx", "nxVals"),
         ("N1", "n1Vals"),
+        ("N1_", "n1Vals"),
+        ("Nxz", "n1Vals"),
+        ("N2", "n2Vals"),
+        ("N2_", "n2Vals"),
         ("nu", "nuVals"),
         ("nxu", "nxuVals"),
         ("ny", "nyVals"),
@@ -49,6 +56,8 @@ def getSysSettingsFromSysCode(sysCode):
         ("Ne", "nxZErrVals"),
     ]
     for prefix, settingsField in prefixFieldPairs:
+        if settingsField in sysSettings and sysSettings[settingsField] is not None:
+            continue
         rng = extractRangeParamFromSysCode(sysCode, prefix=prefix)[0]
         if rng is not None:
             if len(rng) == 2 and rng[1] == rng[0]:
@@ -68,19 +77,49 @@ def getSysSettingsFromSysCode(sysCode):
     sysSettings["zSNRLR"] = extractRangeParamFromSysCode(sysCode, prefix="zSNRL")[0]
     sysSettings["yZNZRLR"] = extractRangeParamFromSysCode(sysCode, prefix="yZNZRL")[0]
 
+    sysSettings["S0"] = "S0" in sysCode
+
+    sysSettings["eigMethod"] = "icdf" if "icdf" in sysCode else ""
+    pbeta = extractRangeParamFromSysCode(sysCode, "pbeta", rangeIndicator="")[0]
+    if pbeta is not None and len(pbeta) > 0:
+        sysSettings["eigDist"] = {
+            "magDist": "beta",
+            "magDistParams": {"a": int(pbeta[0]), "b": int(pbeta[-1])},
+        }
+    pzbeta = extractRangeParamFromSysCode(sysCode, "pzbeta", rangeIndicator="")[0]
+    if pzbeta is not None and len(pzbeta) > 0:
+        sysSettings["zEigDist"] = {
+            "magDist": "beta",
+            "magDistParams": {"a": int(pzbeta[0]), "b": int(pzbeta[-1])},
+        }
+
     for p in ["A", "K", "Cy", "Cz"]:
         sysSettings[p + "_args"] = {}
+
+    if "stcfrm" in sysCode:
+        sysSettings["predictor_form"] = False
+    elif "prdfrm" in sysCode:
+        sysSettings["predictor_form"] = True
 
     return sysSettings
 
 
 def generateRandomLinearModel(sysSettings):
-    nx = np.random.choice(sysSettings["nxVals"])
-    n1 = (
-        np.random.choice(sysSettings["n1Vals"][sysSettings["n1Vals"] <= nx])
-        if np.any(np.array(sysSettings["n1Vals"]) <= nx)
-        else nx
-    )
+    if sysSettings["nxVals"] is not None and len(sysSettings["nxVals"]):
+        nx = np.random.choice(sysSettings["nxVals"])
+        n1 = (
+            np.random.choice(sysSettings["n1Vals"][sysSettings["n1Vals"] <= nx])
+            if np.any(np.array(sysSettings["n1Vals"]) <= nx)
+            else nx
+        )
+        n2 = nx - n1
+        if sysSettings["n2Vals"] is not None and n2 not in sysSettings["n2Vals"]:
+            raise (Exception("Failed to satisfy n2 requirements"))
+    else:
+        n2 = np.random.choice(sysSettings["n2Vals"])
+        n1 = np.random.choice(sysSettings["n1Vals"])
+        nx = n1 + n2
+
     nu = np.random.choice(sysSettings["nuVals"])
     nxu = np.random.choice(sysSettings["nxuVals"])
     ny = np.random.choice(sysSettings["nyVals"])
@@ -99,6 +138,15 @@ def generateRandomLinearModel(sysSettings):
     if "predictor_form" not in sysSettings:
         sysSettings["predictor_form"] = False
 
+    if "eigDist" not in sysSettings:
+        sysSettings["eigDist"] = {}
+
+    if "zEigDist" not in sysSettings:
+        sysSettings["zEigDist"] = sysSettings["eigDist"]
+
+    if "zErrEigDist" not in sysSettings:
+        sysSettings["zErrEigDist"] = sysSettings["zEigDist"]
+
     if nu > 0:
         sysU = LSSM(state_dim=nxu, output_dim=nu, input_dim=0)  # Input model
     else:
@@ -114,6 +162,8 @@ def generateRandomLinearModel(sysSettings):
                     "n1": n1,
                     "S0": sysSettings["S0"],
                     "predictor_form": sysSettings["predictor_form"],
+                    "eigDist": sysSettings["eigDist"],
+                    "zEigDist": sysSettings["zEigDist"],
                 },
             )
             break
@@ -121,7 +171,12 @@ def generateRandomLinearModel(sysSettings):
             pass
 
     if nxZErr > 0:
-        zErrSys = LSSM(state_dim=nxZErr, output_dim=nz, input_dim=0)
+        zErrSys = LSSM(
+            state_dim=nxZErr,
+            output_dim=nz,
+            input_dim=0,
+            randomizationSettings={"eigDist": sysSettings["zErrEigDist"]},
+        )
         Cz = np.random.randn(nz, nxZErr)
         zErrSys.changeParams({"Cz": Cz})
         s.zErrSys = zErrSys

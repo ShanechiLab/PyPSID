@@ -7,12 +7,14 @@ Shanechi Lab, University of Southern California
 An LSSM object for keeping parameters, filtering, etc
 """
 
-import copy, warnings, logging
+import copy
+import logging
+import warnings
 
 import numpy as np
-from scipy import linalg
+from scipy import linalg, optimize
+from tqdm import tqdm
 
-from .mode_tools import generate_random_eigenvalues
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +262,7 @@ class LSSM:
             self.randomize(randomizationSettings)
         else:
             self.setParams(params)
+        self.verbose = False
 
     def setParams(self, params={}):
 
@@ -391,6 +394,16 @@ class LSSM:
         if "stable_A_KC" not in randomizationSettings:
             randomizationSettings["stable_A_KC"] = True
 
+        if "eigDist" not in randomizationSettings:
+            randomizationSettings["eigDist"] = {}
+
+        if "zEigDist" not in randomizationSettings:
+            randomizationSettings["zEigDist"] = randomizationSettings["eigDist"]
+
+        from .sim_tools import (
+            generate_random_eigenvalues,
+        )  # Import here to avoid circular import
+
         isOk = False
         while not isOk:
             n1 = randomizationSettings["n1"]
@@ -398,9 +411,13 @@ class LSSM:
                 "predictor_form" in randomizationSettings
                 and randomizationSettings["predictor_form"]
             ):
-                A_KC_eigs = generate_random_eigenvalues(n1)
+                A_KC_eigs = generate_random_eigenvalues(
+                    n1, randomizationSettings["zEigDist"]
+                )
                 if self.state_dim > n1:
-                    eigs2 = generate_random_eigenvalues(self.state_dim - n1)
+                    eigs2 = generate_random_eigenvalues(
+                        self.state_dim - n1, randomizationSettings["eigDist"]
+                    )
                     A_KC_eigs = np.concatenate((A_KC_eigs, eigs2))
                 A_KC, ev = linalg.cdf2rdf(A_KC_eigs, np.eye(self.state_dim))
                 self.A_KC = A_KC
@@ -471,9 +488,13 @@ class LSSM:
                     isOk = False
                 pass
             else:
-                self.eigenvalues = generate_random_eigenvalues(n1)
+                self.eigenvalues = generate_random_eigenvalues(
+                    n1, randomizationSettings["zEigDist"]
+                )
                 if self.state_dim > n1:
-                    eigs2 = generate_random_eigenvalues(self.state_dim - n1)
+                    eigs2 = generate_random_eigenvalues(
+                        self.state_dim - n1, randomizationSettings["eigDist"]
+                    )
                     self.eigenvalues = np.concatenate((self.eigenvalues, eigs2))
                 self.A, ev = linalg.cdf2rdf(self.eigenvalues, np.eye(self.state_dim))
                 self.C = np.random.randn(self.output_dim, self.state_dim)
@@ -546,6 +567,8 @@ class LSSM:
                 self.XCov[:] = np.nan
                 self.YCov = np.eye(self.C.shape[0])
                 self.YCov[:] = np.nan
+                self.G = np.ones((self.A.shape[0], self.C.shape[0]))
+                self.G[:] = np.nan
 
             try:
                 try:
@@ -579,7 +602,7 @@ class LSSM:
 
             self.P2 = (
                 self.XCov - self.Pp
-            )  # (should give the solvric solution) Proof: Katayama Theorem 5.3 and A.3 in pvo book
+            )  # (should give the solvric solution) Proof: Katayama Theorem 5.3 and A.3 in VODM book
         elif hasattr(self, "K") and self.K is not None:  # Given K
             self.XCov = None
             if not hasattr(self, "G"):
@@ -598,6 +621,33 @@ class LSSM:
             self.B_KD = self.B - self.K @ self.D
         if self.state_dim == 0:
             self.A_KC = self.A
+
+    def getBackwardModel(self):
+        # Sources:
+        # - Katayama Lemma 4.12
+        # - VODM page 63, backward model, Fig. 3.5
+        newXCov = np.linalg.inv(self.XCov)
+        newA = self.A.T
+        # newC = ((self.C @ self.XCov @ self.A.T + self.S.T) @ newXCov).T # WRONG!
+        newC = self.G.T
+        if hasattr(self, "Cz"):
+            Sxz = (
+                self.Sxz
+                if hasattr(self, "Sxz")
+                else np.zeros((self.state_dim, self.Cz.shape[0]))
+            )
+            # newCz = (self.Cz @ self.XCov @ self.A.T + Sxz.T) @ newXCov  # WRONG!
+            Gz = self.A @ self.XCov @ self.Cz.T + Sxz
+            newCz = Gz.T  # Gz is the backward model for Cz
+        newQ = newXCov - self.A.T @ newXCov @ self.A
+        newS = self.C.T - self.A.T @ newXCov @ newC.T
+        newR = self.YCov - newC @ newXCov @ newC.T
+        bw = LSSM(params={"A": newA, "C": newC, "Q": newQ, "R": newR, "S": newS})
+        if hasattr(self, "Cz"):
+            bw.Cz = newCz
+        if hasattr(self, "zDims"):
+            bw.zDims = self.zDims
+        return bw
 
     def isStable(self):
         return np.all(np.abs(self.eigenvalues) < 1)
@@ -712,7 +762,7 @@ class LSSM:
         wv=None,
         return_z=False,
         return_z_err=False,
-        return_wv=False,
+        return_noise=False,
         blowup_threshold=np.inf,
         reset_x_on_blowup=False,
         randomize_x_on_blowup=False,
@@ -734,7 +784,8 @@ class LSSM:
             u0 = np.zeros((self.input_dim, 1))
         X = np.empty((N, self.state_dim))
         Y = np.empty((N, self.output_dim))
-        for i in range(N):
+        tqdm_disabled = not hasattr(self, "verbose") or not self.verbose
+        for i in tqdm(range(N), "Generating realization", disable=tqdm_disabled):
             if i == 0:
                 Xt_1 = x0
                 Wt_1 = w0
@@ -780,7 +831,7 @@ class LSSM:
             out += (Z,)
             if return_z_err:
                 out += (ZErr,)
-        if return_wv:
+        if return_noise:
             out += (wv,)
         return out
 
@@ -793,7 +844,7 @@ class LSSM:
         e=None,
         return_z=False,
         return_z_err=False,
-        return_e=False,
+        return_noise=False,
         blowup_threshold=np.inf,
         reset_x_on_blowup=False,
         randomize_x_on_blowup=False,
@@ -812,7 +863,8 @@ class LSSM:
         X = np.empty((N, self.state_dim))
         Y = np.empty((N, self.output_dim))
         Xp = x0
-        for i in range(N):
+        tqdm_disabled = not hasattr(self, "verbose") or not self.verbose
+        for i in tqdm(range(N), "Generating realization", disable=tqdm_disabled):
             ek = e[i, :][:, np.newaxis]
             yk = self.C @ Xp + ek
             if u is not None:
@@ -854,7 +906,7 @@ class LSSM:
             out += (Z,)
             if return_z_err:
                 out += (ZErr,)
-        if return_e:
+        if return_noise:
             out += (e,)
         return out
 
@@ -906,8 +958,8 @@ class LSSM:
                 "Steady state Kalman gain not available. Will perform non-steady-state Kalman."
             )
         N, ny = Y.shape[0], Y.shape[1]
-        allXp = np.empty((N, self.state_dim))  # X(i|i-1)
-        allXf = np.empty((N, self.state_dim))  # X(i|i)
+        allXp = np.nan * np.ones((N, self.state_dim))  # X(i|i-1)
+        allXf = np.nan * np.ones((N, self.state_dim))  # X(i|i)
         if return_state_cov:
             allPp = np.zeros((N, self.state_dim, self.state_dim))  # P(i|i-1)
             allPf = np.zeros((N, self.state_dim, self.state_dim))  # P(i|i)
@@ -925,14 +977,28 @@ class LSSM:
                 P0 = np.eye(self.state_dim)
         Xp = x0
         Pp = P0
-        for i in range(N):
+        tqdm_disabled = not hasattr(self, "verbose") or not self.verbose
+        for i in tqdm(range(N), "Estimating latent states", disable=tqdm_disabled):
             allXp[i, :] = np.transpose(Xp)  # X(i|i-1)
             thisY = Y[i, :][np.newaxis, :]
             if hasattr(self, "YPrepModel") and self.YPrepModel is not None:
                 thisY = self.YPrepModel.apply(
                     thisY, time_first=True
                 )  # Apply any mean removal/zscoring
-            zi = thisY.T - self.C @ Xp  # Innovation Z(i)
+
+            is_missing = (
+                self.missing_marker is not None
+                and (
+                    np.any(thisY == self.missing_marker)
+                    or (np.isnan(self.missing_marker) and np.any(np.isnan(thisY)))
+                )
+            ) or np.ma.is_masked(thisY)
+
+            if not is_missing:
+                zi = np.array(thisY.T) - self.C @ Xp  # Innovation Z(i)
+            else:
+                zi = np.zeros((ny, 1))  # Observation is missing
+
             if U is not None:
                 ui = U[i, :][:, np.newaxis]
                 if hasattr(self, "UPrepModel") and self.UPrepModel is not None:
@@ -949,7 +1015,10 @@ class LSSM:
                 if np.linalg.norm(Pp) > 1e100:
                     warnings.warn("Kalman's Riccati recursion blew up... resetting Pp")
                     Pp = P0
-                ziCov = self.C @ Pp @ self.C.T + self.R
+                if not is_missing:
+                    ziCov = self.C @ Pp @ self.C.T + self.R
+                else:
+                    ziCov = np.zeros((ny, ny))
                 try:
                     Kf = np.linalg.lstsq(ziCov.T, (Pp @ self.C.T).T, rcond=None)[
                         0
@@ -971,12 +1040,6 @@ class LSSM:
                 if return_state_cov:
                     allPp[i, :, :] = Pp  # P(i|i-1)
                     allPf[i, :, :] = P  # P(i|i)
-
-            if self.missing_marker is not None and np.any(
-                Y[i, :] == self.missing_marker
-            ):
-                zi = np.zeros_like(zi)  # Observation is missing
-                ziCov = np.zeros((zi.size, zi.size))
 
             if Kf is not None:  # Otherwise cannot do filtering
                 X = Xp + Kf @ zi  # X(i|i)
@@ -1009,16 +1072,38 @@ class LSSM:
             return allXp, allYp, allXf, allPp, allPf
 
     def kalmanSmoother(
-        self, Y, U=None, x0=None, P0=None, steady_state=True, return_state_cov=False
+        self, Y, U=None, x0=None, P0=None, steady_state=False, return_state_cov=False
     ):
+        """Applies the Kalman smoother associated with the LSSM to some observation time-series
+
+        Args:
+            Y (np.ndarray): observation time series (time first)
+            U (np.ndarray, optional): input time series (time first). Defaults to None.
+            x0 (np.ndarray, optional): Initial Kalman state. Defaults to None.
+            P0 (np.ndarray, optional): Initial Kalman state estimation error covariance. Defaults to None.
+            steady_state (bool, optional): If True, will use steady state Kalman gain, which is much faster. Defaults to True.
+            return_state_cov (bool, optional): If true, will return state error covariances. Defaults to False.
+
+        Returns:
+            allXp (np.ndarray): one-step ahead predicted states (t|t-1)
+            allYp (np.ndarray): one-step ahead predicted observations (t|t-1)
+            allXf (np.ndarray): filtered states (t|t)
+            allXs (np.ndarray): smoothed states (t|T)
+            allPp (np.ndarray): error cov for one-step ahead predicted states (t|t-1)
+            allPf (np.ndarray): error cov for filtered states (t|t)
+            allPs (np.ndarray): error cov for smoothed states (t|T)
+        """
         # First run the Kalman forward pass and get the covs
-        allXp, allYp, allX, allPp, allPf = self.kalman(
+        allXp, allYp, allXf, allPp, allPf = self.kalman(
             Y, U, x0=x0, P0=P0, steady_state=steady_state, return_state_cov=True
+        )
+        allXpSS, allYpSS, allXfSS, allPpSS, allPfSS = self.kalman(
+            Y, U, x0=x0, P0=P0, steady_state=True, return_state_cov=True
         )
 
         N = Y.shape[0]
         allXs = np.empty((N, self.state_dim))  # X(i|N)
-        allXs[-1, :] = allX[-1, :]  # X(N|N)
+        allXs[-1, :] = allXf[-1, :]  # X(N|N)
 
         if not steady_state:
             if return_state_cov:
@@ -1066,9 +1151,72 @@ class LSSM:
                     allPps[i, :, :] = allPs[i + 1, :, :] @ Li.T  # P(i,i-1|N)
             else:
                 Li = L
-            allXs[i, :] = allX[i, :] + Li @ (
+            allXs[i, :] = allXf[i, :] + Li @ (
                 allXs[i + 1, :] - allXp[i + 1, :]
             )  # X(i|N)
+
+        if not return_state_cov:
+            return allXp, allYp, allXf, allXs
+        else:
+            return allXp, allYp, allXf, allXs, allPp, allPf, allPs
+
+    def forwardBackwardSmoother(
+        self, Y, U=None, x0=None, P0=None, steady_state=True, return_state_cov=False
+    ):
+        # First run the Kalman forward pass and get the covs
+        allXp, allYp, allX, allPp, allPf = self.kalman(
+            Y, U, x0=x0, P0=P0, steady_state=steady_state, return_state_cov=True
+        )
+
+        N = Y.shape[0]
+
+        # Based on Kitagawa 2023, using backward information filter
+        allXpB = np.nan * np.ones_like(allXp)  # Xb(i | i+1)
+        allXB = np.nan * np.ones_like(allXp)  # Xb(i | i)
+        allXs = np.nan * np.ones((N, self.state_dim))  # X(i|N)
+        if return_state_cov:
+            allPpB = np.nan * np.ones_like(allPp)  # Pb(i | i+1)
+            allPfB = np.nan * np.ones_like(allPp)  # Pb(i | i)
+            allPs = np.zeros((N, self.state_dim, self.state_dim))  # P(i|N)
+        invA = np.linalg.pinv(self.A)
+        invQ = np.linalg.pinv(self.Q)
+        invR = np.linalg.pinv(self.R)
+        for i in reversed(range(N)):  # From N-1 to 0
+            Xpi = allXp[i, :][:, np.newaxis]  # Xp(i|i-1)
+            Xfi = allX[i, :][:, np.newaxis]  # Xf(i|i)
+            Ppi = allPp[i, ...]  # Pf(i|i-1)
+            Pfi = allPf[i, ...]  # Pf(i|i)
+
+            if i == N - 1:
+                XpBi = np.zeros((self.state_dim, 1))  # Xb(i|i+1)
+                PpBi = np.zeros((self.state_dim, self.state_dim))  # Pb(i|i+1)
+
+            Yi = Y[i, :][:, np.newaxis]
+            # Backwards filter's update [Kitagawa 2023, Backward information filter]
+            XfBi = XpBi + self.C.T @ invR @ Yi  # Xb(i|i) Backward update equation
+            PfBi = (
+                PpBi + self.C.T @ invR @ self.C
+            )  # Pb(i|i) Cov for backward upated state
+
+            allXpB[i, :] = XpBi.T
+            allXB[i, :] = XfBi.T
+            if return_state_cov:
+                allPpB[i, ...] = PpBi
+                allPfB[i, ...] = PfBi
+
+            # Getting smoothed results [Kitagawa 2023, two-filter formula for smoothing 2]
+            invPfi = np.linalg.pinv(Pfi)
+            Psi = np.linalg.pinv(invPfi + PpBi)  # Ps(i|N) Cov of smoothed estimate
+            Xsi = Psi @ (invPfi @ Xfi + XpBi)  # Xs(i|N)
+
+            allXs[i, :] = Xsi.T
+            if return_state_cov:
+                allPs[i, ...] = Psi
+
+            # Backwards filter's prediction [Kitagawa 2023, Backward information predictor]
+            Lk = -self.A.T @ PfBi @ np.linalg.pinv(invQ + PfBi)
+            XpBi = (self.A.T + Lk) @ XfBi
+            PpBi = (self.A.T + Lk) @ PfBi @ self.A  # minus something is missing???
 
         if not return_state_cov:
             return allXp, allYp, allX, allXs
@@ -1077,10 +1225,48 @@ class LSSM:
 
     def propagateStates(self, allXp, step_ahead=1):
         for step in range(step_ahead - 1):
-            allXp = (self.A @ allXp.T).T
+            if (
+                hasattr(self, "multi_step_with_A_KC") and self.multi_step_with_A_KC
+            ):  # If true, forward predictions will be done with A-KC rather than the correct A (but will be useful for comparing with predictor form models)
+                if (
+                    hasattr(self, "useA_KC_plus_KC_in_KF")
+                    and self.useA_KC_plus_KC_in_KF
+                ):  # TEEMP, just for unit tests of DPADModel
+                    allXp = (self.A_KC @ allXp.T).T
+                else:
+                    allXp = ((self.A - self.K @ self.C) @ allXp.T).T
+            else:
+                allXp = (self.A @ allXp.T).T
         return allXp
 
-    def predict(self, Y, U=None, useXFilt=None, useXSmooth=None, **kwargs):
+    def predict(
+        self,
+        Y,
+        U=None,
+        useXFilt=None,
+        useXSmooth=None,
+        return_state_cov=False,
+        **kwargs,
+    ):
+        """Runs Kalman/PPF and returns state and observation predictions
+
+        Args:
+            Y (np.ndarray): observation time series (time first)
+            U (np.ndarray, optional): input time series (time first). Defaults to None.
+            useXFilt (bool, optional): If True, will use filtered states (t|t) for prediction of observations. Defaults to None.
+            useXSmooth (bool, optional): If True, will use smoothed states (t|T) for prediction of observations. Defaults to None.
+
+        Returns:
+            allZp (np.ndarray): predicted z observations via Cz observation matrix (if it exists).
+                    If there are n steps ahead specified in the model (self.steps_ahead), then the first n
+                    outputs will be the predicted z observations with various steps ahead in order of self.steps_ahead.
+            allYp (np.ndarray): predicted y observations via C observation matrix (if it exists)
+                    If there are n steps ahead specified in the model (self.steps_ahead), then the second n
+                    outputs will be the predicted y observations with various steps ahead in order of self.steps_ahead.
+            allXp (np.ndarray): predicted states
+                    If there are n steps ahead specified in the model (self.steps_ahead), then the third n
+                    outputs will be the states with various steps ahead in order of self.steps_ahead.
+        """
         if isinstance(Y, (list, tuple)):  # If segments of data are provided as a list
             for trialInd, trialY in enumerate(Y):
                 trialOuts = self.predict(
@@ -1096,17 +1282,37 @@ class LSSM:
                     outs = [outs[oi] + [o] for oi, o in enumerate(trialOuts)]
             return tuple(outs)
         # If only one data segment is provided
-        if hasattr(self, "yPrepModel") and self.yPrepModel is not None:
-            Y = np.array(self.yPrepModel.predict(Y))
         if useXSmooth == True or (
             useXSmooth is None
             and hasattr(self, "predictWithXSmooth")
             and self.predictWithXSmooth
         ):
-            allXp, allYp, allXf, allXs = self.kalmanSmoother(Y, U=U, **kwargs)[0:4]
+            kf_outputs = self.kalmanSmoother(
+                Y, U=U, return_state_cov=return_state_cov, **kwargs
+            )
+            allXp, allYp, allXf, allXs = kf_outputs[:4]
+            if np.any(np.isnan(allXs)) and "steady_state" not in kwargs:
+                logger.warning(
+                    f"Approximate steady state smoother blew up, using regular smoother"
+                )
+                kf_outputs = self.kalmanSmoother(
+                    Y,
+                    U=U,
+                    steady_state=False,
+                    return_state_cov=return_state_cov,
+                    **kwargs,
+                )
+                allXp, allYp, allXf, allXs = kf_outputs[:4]
+            if return_state_cov:
+                cov_outputs = kf_outputs[4:]
             allXp = allXs
         else:
-            allXp, allYp, allXf = self.kalman(Y, U=U, **kwargs)[0:3]
+            kf_outputs = self.kalman(
+                Y, U=U, return_state_cov=return_state_cov, **kwargs
+            )
+            allXp, allYp, allXf = kf_outputs[:3]
+            if return_state_cov:
+                cov_outputs = kf_outputs[3:]
             if useXFilt == True or (
                 useXFilt is None
                 and hasattr(self, "predictWithXFilt")
@@ -1151,18 +1357,15 @@ class LSSM:
                 prep_model_param="YPrepModel",
                 mapping_param="cMapY",
             )
-            if (
-                hasattr(self, "yPrepModel")
-                and self.yPrepModel is not None
-                and hasattr(self.yPrepModel, "inverse_transform")
-            ):
-                allYp = np.array(self.yPrepModel.inverse_transform(allYp))
 
             allZpSteps.append(allZp)
             allYpSteps.append(allYp)
             allXpSteps.append(allXpThis)
 
-        return tuple(allZpSteps) + tuple(allYpSteps) + tuple(allXpSteps)
+        outputs = tuple(allZpSteps) + tuple(allYpSteps) + tuple(allXpSteps)
+        if return_state_cov:
+            outputs = outputs + cov_outputs
+        return outputs
 
     def applySimTransform(self, E):
         EInv = np.linalg.inv(E)

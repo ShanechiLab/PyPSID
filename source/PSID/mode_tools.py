@@ -96,8 +96,8 @@ def drawRandomPoles(N, poleDist={}):
     return valsA
 
 
-def generate_random_eigenvalues(count):
+def generate_random_eigenvalues(count, *args, **kw_args):
     """Generates complex conjugate pairs of eigen values with a uniform distribution in the unit circle"""
     # eigvals = 0.95 * np.exp(1j * np.pi/8 * np.array([-1, +1]))
-    eigvals = drawRandomPoles(count)
+    eigvals = drawRandomPoles(count, *args, **kw_args)
     return eigvals
