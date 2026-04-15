@@ -106,7 +106,7 @@ def recomputeObsAndStates(A, C, i, YHat, YHatMinus):
     return Xk, Xk_Plus1
 
 
-def computeBD(A, C, Yii, Xk_Plus1, Xk, i, nu, Uf):
+def computeBD(A, C, Yii, Xk_Plus1, Xk, i, nu, Uf, fit_Dy=True):
     """
     Computes matrices corresponding to the effect of external input
     Returns:
@@ -146,10 +146,21 @@ def computeBD(A, C, Yii, Xk_Plus1, Xk, i, nu, Uf):
         LHS = LHS + np.kron(Uf[(ii * nu) : (ii * nu + nu), :].T, NN @ RMul)
         NNAll.append(NN)
 
-    DBVec = np.linalg.lstsq(LHS, PP.flatten(order="F"), rcond=None)[0]
-    DB = np.reshape(DBVec, [nx + ny, nu], order="F")
-    D = DB[:ny, :]
-    B = DB[ny : (ny + nx), :]
+    rhs = PP.flatten(order="F")
+    if fit_Dy:
+        DBVec = np.linalg.lstsq(LHS, rhs, rcond=None)[0]
+        DB = np.reshape(DBVec, [nx + ny, nu], order="F")
+        D = DB[:ny, :]
+        B = DB[ny : (ny + nx), :]
+    else:
+        keep_cols = []
+        block_size = nx + ny
+        for input_idx in range(nu):
+            block_start = input_idx * block_size
+            keep_cols.extend(range(block_start + ny, block_start + block_size))
+        BVec = np.linalg.lstsq(LHS[:, keep_cols], rhs, rcond=None)[0]
+        B = np.reshape(BVec, [nx, nu], order="F")
+        D = np.zeros((ny, nu))
     return B, D
 
 
@@ -280,6 +291,7 @@ def IPSID(
     WS=dict(),
     return_WS=False,
     fit_Cz_via_KF=True,
+    fit_Dy=True,
     time_first=True,
     remove_mean_Y=True,
     remove_mean_Z=True,
@@ -367,33 +379,37 @@ def IPSID(
         - (9) fit_Cz_via_KF (default: True): if True (preferred option),
                 refits Cz more accurately using a KF after all other
                 parameters are learned
-        - (10) time_first (default: True): if True, will expect the time dimension
+        - (10) fit_Dy (default: True): if False, constrains the y-output feedthrough
+                    parameter Dy to zero while still fitting B. This does not
+                    constrain Dz, which may still be learned in IPSID paths that
+                    model z with input feedthrough.
+        - (11) time_first (default: True): if True, will expect the time dimension
                 of the data to be the first dimension (e.g. Z is T x nz). If False,
                 will expect time to be the second dimension in all data
                 (e.g. Z is nz x T).
-        - (11) remove_mean_Y: if True will remove the mean of Y.
+        - (12) remove_mean_Y: if True will remove the mean of Y.
                     Must be True if data is not zero mean. Defaults to True.
-        - (12) remove_mean_Z: if True will remove the mean of Z.
+        - (13) remove_mean_Z: if True will remove the mean of Z.
                     Must be True if data is not zero mean. Defaults to True.
-        - (13) remove_mean_U: if True will remove the mean of U.
+        - (14) remove_mean_U: if True will remove the mean of U.
                     Must be True if data is not zero mean. Defaults to True.
-        - (14) zscore_Y: if True will z-score Y. It is ok to set this to False,
+        - (15) zscore_Y: if True will z-score Y. It is ok to set this to False,
                     but setting to True may help with stopping some dimensions of
                     data from dominating others. Defaults to False.
-        - (15) zscore_Z: if True will z-score Z. It is ok to set this to False,
+        - (16) zscore_Z: if True will z-score Z. It is ok to set this to False,
                     but setting to True may help with stopping some dimensions of
                     data from dominating others. Defaults to False.
-        - (16) zscore_U: if True will z-score U. It is ok to set this to False,
+        - (17) zscore_U: if True will z-score U. It is ok to set this to False,
                     but setting to True may help with stopping some dimensions of
                     data from dominating others. Defaults to False.
-        - (17) missing_marker (default: None): if not None, will discard samples of Z that
+        - (18) missing_marker (default: None): if not None, will discard samples of Z that
                 equal to missing_marker when fitting Cz. Only effective if fit_Cz_via_KF is
                 True.
-        - (18) remove_nonYrelated_fromX1 (default: False): If remove_nonYrelated_fromX1=True, the direct effect
+        - (19) remove_nonYrelated_fromX1 (default: False): If remove_nonYrelated_fromX1=True, the direct effect
                 of input u(k) on z(k) would be excluded from x1(k) in additional step 1 (preprocessing stage).
                 If False, additional step 1 won't happen and x3 (and its corresponding model parameters
                 [A33, B3, Cz3 and noise statistics related to x3]) won't be learned even if n3>0 provided.
-        - (19) n_pre (default: np.inf): preprocessing dimension used in additional step 1.
+        - (20) n_pre (default: np.inf): preprocessing dimension used in additional step 1.
                 Additional step 1 only happens if remove_nonYrelated_fromX1=True.
                 Large values of n_pre (assuming there is enough data to fit models with
                 such large state dimensions) would ensure all dynamics of Y are preserved in
@@ -402,7 +418,7 @@ def IPSID(
                 (all available SVD dimensions).
                 If n_pre=0, Additional steps 1 and 2 won't happen and x3 won't be learned
                 (remove_nonYrelated_fromX1 will be set to False, n3 will be 0).
-        - (20) n3: number of latent states x3(k) in the optional additional step 2.
+        - (21) n3: number of latent states x3(k) in the optional additional step 2.
 
     Outputs:
         - (1) idSys: an LSSM object with the system parameters for
@@ -429,9 +445,12 @@ def IPSID(
             a special case of IPSID. To do so, simply set Z=None and n1=0.
         (6) NDM (or SID, i.e., Standard Subspace Identification without input U, unsupervised by Z) can be performed as
             a special case of IPSID. To do so, simply set Z=None, U=None and n1=0.
+        (7) Setting fit_Dy=False constrains only Dy to zero. It does not constrain Dz, which may
+            still be learned depending on Z, U, and additional-step settings.
 
     Usage example:
         idSys = IPSID(Y, Z, U, nx=nx, n1=n1, i=i);  # With external input
+        idSys = IPSID(Y, Z=None, U=U, nx=nx, n1=0, i=i, fit_Dy=False);  # With external input and Dy constrained to zero
         idSys = IPSID(Y, Z, U, nx=nx, n1=n1, remove_nonYrelated_inX1=True, n_pre=n_pre, i=i);  # With external input and preprocessing x1(k)
         idSys = IPSID(Y, Z, U, nx=nx, n1=n1, remove_nonYrelated_inX1=True, n_pre=n_pre, n3=n3, i=i);  # With external input, preprocessing x1(k) and optional states x3(k)
         idSysPSID = IPSID(Y, Z, nx=nx, n1=n1, i=i);     # No external input: PSID
@@ -546,6 +565,20 @@ def IPSID(
         not remove_nonYrelated_fromX1 or n_pre == 0
     ):  # Due to provided settings, preprocessing step is disabled and X3 won't be learned.
         remove_nonYrelated_fromX1, n_pre, n3 = False, 0, 0
+
+    if not fit_Dy:
+        if nu == 0:
+            warnings.warn(
+                "fit_Dy=False has no effect because no input U was provided or inferred."
+            )
+        if nu > 0 and nz > 0 and not remove_nonYrelated_fromX1:
+            warnings.warn(
+                "fit_Dy=False only constrains Dy; Dz may still be learned when Z and U are both provided."
+            )
+        if nu > 0 and n3 > 0:
+            warnings.warn(
+                "fit_Dy=False does not constrain Dz introduced by additional step 2 (n3 > 0)."
+            )
 
     if n1 > 0 and nz > 0:
         if n1 > iZ * nz:
@@ -794,7 +827,7 @@ def IPSID(
 
         # Recompute Oy and Oy_Minus using A and Cy and recompute Xk and Xk_Plus1 using the new Oy
         Xk, Xk_Plus1 = recomputeObsAndStates(A, Cy, iY, YHat, YHatMinus)
-        B, Dy = computeBD(A, Cy, Yii, Xk_Plus1, Xk, iY, nu, Uf)
+        B, Dy = computeBD(A, Cy, Yii, Xk_Plus1, Xk, iY, nu, Uf, fit_Dy=fit_Dy)
         s.changeParams({"B": B, "D": Dy})
 
     s.Cz = Cz

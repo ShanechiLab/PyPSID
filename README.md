@@ -68,7 +68,10 @@ A complete usage guide is available in as comments in each function. The followi
 idSys = PSID.PSID(y, z, nx, n1, i)
 # Or, if modeling effect of input u is also of interest
 idSys = PSID.IPSID(y, z, u, nx, n1, i)
+# Or, to fit B while constraining the y-output feedthrough Dy to zero
+idSys = PSID.IPSID(y, z, u, nx, n1, i, fit_Dy=False)
 ```
+Passing `fit_Dy=False` constrains only `Dy` to zero. It does not constrain `Dz`, which may still be learned in IPSID configurations that model z with input feedthrough.
 Inputs:
 - y and z are time x dimension matrices with neural (e.g. LFP signal powers or spike counts) and behavioral data (e.g. joint angles, hand position, etc), respectively. 
 - IPSID also takes u as an input, which is a time x dimension matrix, containing the measured input data. 
