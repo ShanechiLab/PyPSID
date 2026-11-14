@@ -236,6 +236,19 @@ def get_shape(Y):
         return Y.shape
 
 
+def _compute_filtered_y(model, Y, Yp):
+    """Computes filtered neural observations y_{k|k} from predictions y_{k|k-1}."""
+    ny = get_shape(Y)[1]
+    fltCyKf = (
+        model.C @ model.Kf
+        if hasattr(model, "Kf") and model.Kf is not None
+        else np.zeros((ny, ny))
+    )
+    if isinstance(Y, (list, tuple)):
+        return [Yp[i] + (fltCyKf @ (Y[i] - Yp[i]).T).T for i in range(len(Y))]
+    return Yp + (fltCyKf @ (Y - Yp).T).T
+
+
 class PSIDModel:
     """Class for identifying and using Preferential Subspace Identification (PSID) models.
 
@@ -252,6 +265,7 @@ class PSIDModel:
         hyper_param_settings=None,  # Settings for hyper-parameter selection
         default_inference="prediction",  # Can also be 'filtering' or 'smoothing',
         bw_on_residual=None,
+        bw_on_residual_y=None,
         updateKfKv=None,
         zShift=None,  # A shift to apply as preprocessing during learning and undo during prediction. if zShift=1, the normal PSID would attempt to optimize and return z{k|k} instead of the default z{k|k-1}.
         steps_ahead=None,  # Number of steps ahead for prediction.
@@ -270,7 +284,8 @@ class PSIDModel:
             iZ (int, optional): Behavioral data horizon. If None, it will be tuned. Defaults to None.
             hyper_param_settings (dict, optional): Settings for hyperparameter tuning. Defaults to None.
             default_inference (str, optional): Default prediction mode. Can be 'prediction', 'filtering', or 'smoothing'. Defaults to "prediction".
-            bw_on_residual (bool, optional): Whether to fit the backward model on residuals for smoothing. Defaults to True.
+            bw_on_residual (bool, optional): Whether to fit the backward model on behavioral residuals for smoothing. Defaults to True.
+            bw_on_residual_y (bool, optional): Whether to fit the backward model on neural residuals (y - y_{k|k}) for smoothing. Defaults to the value of `bw_on_residual` (True).
             updateKfKv (bool, optional): Whether to update Kf and Kv from estimated Kalman gain. Defaults to False.
             zShift (int, optional): A shift for behavioral data Z. Can be used for lag compensation. Defaults to None.
             steps_ahead (int, optional): Number of steps ahead for prediction. Defaults to None.
@@ -297,6 +312,9 @@ class PSIDModel:
         if bw_on_residual is None:
             bw_on_residual = True  # By default, fit backward model based on residuals
         self.bw_on_residual = bw_on_residual
+        if bw_on_residual_y is None:
+            bw_on_residual_y = bw_on_residual  # By default, fit backward model on neural residuals when bw_on_residual is True
+        self.bw_on_residual_y = bw_on_residual_y
         if updateKfKv is None:
             updateKfKv = False  # By default, do not attempt to update Kf and Kv steady state Kalman gains of the learned model
         self.updateKfKv = updateKfKv
@@ -417,12 +435,17 @@ class PSIDModel:
                 Zf = [Zp[i] + (fltCzKf @ (YTF[i] - Yp[i]).T).T for i in range(len(YTF))]
             else:
                 Zf = Zp + (fltCzKf @ (YTF - Yp).T).T
+            Yf = _compute_filtered_y(model, YTF, Yp) if self.bw_on_residual_y else None
         else:
-            fltCzKf, fltGzKf = None, None
+            fltCzKf, fltGzKf, Yf = None, None, None
 
         if enable_all_inference or self.default_inference in ["smoothing"]:
             # Time-reversed model for optimal backward pass for K|N smoothing
-            YBW = applyFuncIf(YTF, np.flipud)
+            YBW = (
+                applyFuncIf(subtractIf(YTF, Yf), np.flipud)
+                if self.bw_on_residual_y
+                else applyFuncIf(YTF, np.flipud)
+            )
             ZBW = (
                 applyFuncIf(subtractIf(ZTF, Zf), np.flipud)
                 if self.bw_on_residual
@@ -774,7 +797,11 @@ class PSIDModel:
         if self.default_inference in ["smoothing"]:
             if self.modelBW is None:
                 raise (Exception("Model was not trained for smoothing"))
-            YBW = np.flipud(Y)
+            if getattr(self, "bw_on_residual_y", False):
+                Yf = _compute_filtered_y(self.model, Y, Yp)
+                YBW = np.flipud(Y - Yf)
+            else:
+                YBW = np.flipud(Y)
             outsBW = self.modelBW.predict(
                 YBW, return_state_cov=return_state_cov, **kwargs
             )
