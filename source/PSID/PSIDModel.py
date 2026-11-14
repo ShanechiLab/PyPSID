@@ -399,10 +399,10 @@ class PSIDModel:
         )
         model.zDims = np.arange(1, 1 + min([self.n1, self.nx]))
 
-        nz = get_shape(Z)[1] if Z is not None else 0
         if enable_all_inference or self.default_inference in ["filtering", "smoothing"]:
             YTF = Y if time_first else transposeIf(Y)
             ZTF = Z if time_first else transposeIf(Z)
+            nz = get_shape(ZTF)[1] if ZTF is not None else 0
             # Regression to find optimal Cz * Kf for K|k filtering
             Zp, Yp, Xp = model.predict(YTF)
             fltGzKf = updateFilteringParam(
