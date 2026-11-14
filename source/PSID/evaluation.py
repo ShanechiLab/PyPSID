@@ -229,12 +229,36 @@ def computeEigIdError(trueEigs, idEigVals, measure="NFN"):
     return allEigError
 
 
-def computeLSSMIdError(sTrue, sId_in):
+def _set_ground_truth_filtering_gain(lssm):
+    """Sets effective filtering gain fltCzKf on a ground-truth LSSM if not already set.
+
+    Accounts for noise cross-covariance Syz between observation noise v_k and
+    behavioral noise eps_k (non-zero in the backward stochastic model even when
+    forward Syz is zero):
+        fltCzKf = Cz @ Kf + Syz.T @ pinv(innovCov)
+    """
+    if (
+        hasattr(lssm, "fltCzKf")
+        or not hasattr(lssm, "Cz")
+        or lssm.Cz is None
+        or not hasattr(lssm, "Kf")
+        or lssm.Kf is None
+    ):
+        return
+    fltCzKf = lssm.Cz @ lssm.Kf
+    if hasattr(lssm, "Syz") and lssm.Syz is not None:
+        fltCzKf = fltCzKf + lssm.Syz.T @ np.linalg.pinv(lssm.innovCov)
+    lssm.fltCzKf = fltCzKf
+
+
+def computeLSSMIdError(sTrue, sId_in, name_suffix="", make_similar=True):
     """Computes the parameter learning error and eigenvalue error for a learned LSSM
 
     Args:
         sTrue (LSSM): true model
         sId_in (LSSM): learned model
+        name_suffix (str, optional): suffix to append to error metric names (e.g. 'BW'). Defaults to "".
+        make_similar (bool, optional): if True, aligns state basis via similarity transform before comparing. Defaults to True.
 
     Returns:
         errs (dict): computed error metrics
@@ -243,9 +267,8 @@ def computeLSSMIdError(sTrue, sId_in):
     errs = {}
     if hasattr(sId_in, "state_dim") and sTrue.state_dim == sId_in.state_dim:
         sId = copy.deepcopy(sId_in)  # Do not modify the original object
-        E = sId.makeSimilarTo(
-            sTrue
-        )  # TEMP CM!!! This was needed to be commented temporarily to test something for avoiding error
+        if make_similar:
+            E = sId.makeSimilarTo(sTrue)
 
         def matrixErrNorm(trueX, idX):
             """Computes normalized Frobenius norm error between matrices.
@@ -273,7 +296,7 @@ def computeLSSMIdError(sTrue, sId_in):
                 if field in dir(sId):
                     valId = sId.__getattribute__(field)
                     if isinstance(valId, np.ndarray) and valTrue.shape == valId.shape:
-                        errFieldName = "{}ErrNormed".format(field)
+                        errFieldName = "{}{}ErrNormed".format(field, name_suffix)
                         try:
                             errs[errFieldName] = matrixErrNorm(
                                 np.atleast_2d(valTrue), np.atleast_2d(valId)
@@ -297,10 +320,11 @@ def computeLSSMIdError(sTrue, sId_in):
                 idZEigs = np.hstack(
                     (idZEigs, np.zeros((len(trueZEigs) - len(idZEigs))))
                 )
+            errFieldName = "zEig{}ErrNFN".format(name_suffix)
             if len(trueZEigs) < 9:
-                errs["zEigErrNFN"] = computeEigIdError(trueZEigs, [idZEigs], "NFN")[0]
+                errs[errFieldName] = computeEigIdError(trueZEigs, [idZEigs], "NFN")[0]
             else:
-                errs["zEigErrNFN"] = np.nan  # Too slow to compute this
+                errs[errFieldName] = np.nan  # Too slow to compute this
         except Exception as e:
             print(e)
             pass
@@ -352,15 +376,38 @@ def evalSysId(
     perf = {}
     zPredTest, yPredTest, xPredTest = None, None, None
     if trueSys is not None:
+        trueSysEval = copy.deepcopy(trueSys)
         try:
-            if type(sId) is type(trueSys):
+            if type(sId) is type(trueSysEval):
                 sIdLSSM = copy.deepcopy(sId)
             else:
                 sIdLSSM = sId.getLSSM()
 
-            perf = computeLSSMIdError(trueSys, sIdLSSM)
+            _set_ground_truth_filtering_gain(trueSysEval)
+            perf = computeLSSMIdError(trueSysEval, sIdLSSM)
         except Exception as e:
             logger.warning(e)
+
+        try:
+            if (
+                hasattr(sId, "getBWLSSM")
+                and sId.getBWLSSM() is not None
+                and hasattr(trueSysEval, "getBackwardModel")
+            ):
+                sIdBWLSSM = sId.getBWLSSM()
+                trueSysBW = trueSysEval.getBackwardModel()
+                if trueSysBW is not None:
+                    _set_ground_truth_filtering_gain(trueSysBW)
+                    perfBW = computeLSSMIdError(
+                        trueSysBW,
+                        sIdBWLSSM,
+                        name_suffix="BW",
+                    )
+                    perf.update(perfBW)
+        except Exception as e:
+            logger.warning(
+                f"Error computing parameter identification performances for the backward model: {e}"
+            )
 
     if YTest is not None:
         zPredTest, yPredTest, xPredTest = sId.predict(YTest)

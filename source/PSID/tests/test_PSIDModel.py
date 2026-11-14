@@ -335,6 +335,42 @@ class TestPSID(unittest.TestCase):
         )
         self.assertLess(abs(r2Trials - r2IdealLast), 2e-2)
 
+    def test_evalSysId_backward_filtering_gain(self):
+        """Tests forward and backward fltCzKf ground-truth evaluation in evalSysId."""
+        np.random.seed(7)
+
+        sysCode = "nyR5_6_nzR3_4_NxR2_2_N1R2_2_NeR0_0_S0_xNScLR1e-1_1e+1_yNScLR1e-1_1e+1_zSNRLR1e+1_1e+2_icdf_pbeta2_1_"
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+
+        s, _, zErrSys = generateRandomLinearModel(sysSettings)
+        N = int(5e4)
+        Y, X = s.generateRealization(N)
+        Z = s.generateObservationFromStates(X, u=None, param_names=["Cz", "Dz"])
+        if zErrSys is not None:
+            eps, _ = zErrSys.generateRealization(N)
+            Z += eps
+
+        # When bw_on_residual=False, modelBW identifies the backward stochastic model directly,
+        # so its learned fltCzKfBW should match {Cz}_{bw} {Kf}_{bw} + (S^b_{yz})^T (innovCov_bw)^{-1}.
+        sId = PSIDModel(
+            nx=s.state_dim,
+            n1=s.zDims.size,
+            i=5,
+            default_inference="smoothing",
+            bw_on_residual=False,
+            updateKfKv=True,
+        )
+        sId.fit(Y, Z)
+        sOrigCopy = copy.deepcopy(s)
+        perf = evalSysId(sId, Y, Z, Y, Z, trueSys=s)[0]
+
+        # Caller's trueSys should not be mutated with derived fltCzKf attribute
+        self.assertEqual(hasattr(s, "fltCzKf"), hasattr(sOrigCopy, "fltCzKf"))
+        self.assertIn("fltCzKfErrNormed", perf)
+        self.assertIn("fltCzKfBWErrNormed", perf)
+        self.assertLess(perf["fltCzKfErrNormed"], 5e-2)
+        self.assertLess(perf["fltCzKfBWErrNormed"], 5e-2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -563,6 +563,33 @@ class TestLSSM(unittest.TestCase):
                     YYCovBW_d = sBW.C @ sBW.A ** (d - 1) @ sBW.G
                     np.testing.assert_allclose(YCCov_d, YYCovBW_d.T, rtol=1e-5)
 
+                if hasattr(s, "Cz") and s.Cz is not None and s.Cz.size > 0:
+                    # Verify lag-0 cross-covariance E[y_k z_k^T] is preserved in backward model
+                    Sxz = (
+                        s.Sxz
+                        if hasattr(s, "Sxz") and s.Sxz is not None
+                        else np.zeros((s.state_dim, s.Cz.shape[0]))
+                    )
+                    Syz = (
+                        s.Syz
+                        if hasattr(s, "Syz") and s.Syz is not None
+                        else np.zeros((s.C.shape[0], s.Cz.shape[0]))
+                    )
+                    yzCovFW = s.C @ s.XCov @ s.Cz.T + Syz
+                    yzCovBW = sBW.C @ sBW.XCov @ sBW.Cz.T + sBW.Syz
+                    np.testing.assert_allclose(yzCovFW, yzCovBW, rtol=1e-5)
+
+                    # Verify effective backward filtering gain identity when forward Sxz=0, Syz=0
+                    if np.allclose(Sxz, 0) and np.allclose(Syz, 0):
+                        effCzKfBW = (
+                            sBW.Cz @ sBW.Kf
+                            + sBW.Syz.T @ np.linalg.pinv(sBW.innovCov)
+                        )
+                        expectedCzKfBW = s.Cz @ s.XCov @ sBW.K
+                        np.testing.assert_allclose(
+                            effCzKfBW, expectedCzKfBW, rtol=1e-4, atol=1e-6
+                        )
+
 
 if __name__ == "__main__":
     unittest.main()

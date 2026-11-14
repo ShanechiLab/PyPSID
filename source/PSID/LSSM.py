@@ -731,21 +731,35 @@ class LSSM:
         newA = self.A.T
         # newC = ((self.C @ self.XCov @ self.A.T + self.S.T) @ newXCov).T # WRONG!
         newC = self.G.T
-        if hasattr(self, "Cz"):
+        if hasattr(self, "Cz") and self.Cz is not None:
             Sxz = (
                 self.Sxz
-                if hasattr(self, "Sxz")
+                if hasattr(self, "Sxz") and self.Sxz is not None
                 else np.zeros((self.state_dim, self.Cz.shape[0]))
             )
-            # newCz = (self.Cz @ self.XCov @ self.A.T + Sxz.T) @ newXCov  # WRONG!
+            Syz = (
+                self.Syz
+                if hasattr(self, "Syz") and self.Syz is not None
+                else np.zeros((self.C.shape[0], self.Cz.shape[0]))
+            )
+            # Gz = E[x^s_{k+1} z_k^T] = A \Sigma_x C_z^T + S_{xz}, so {C_z}_{bw} = G_z^T
             Gz = self.A @ self.XCov @ self.Cz.T + Sxz
-            newCz = Gz.T  # Gz is the backward model for Cz
+            newCz = (
+                Gz.T
+            )  # Backward model readout for z_k: z_k = G_z^T x^b_k + \epsilon^b_k
+            # Backward noise cross-covariances for \epsilon^b_k = z_k - \Pi(z_k | x^s_{k+1}):
+            # E[x^b_{k-1} z_k^T] = C_z^T = A^T \Sigma_x^{-1} G_z + S^b_{xz}
+            newSxz = self.Cz.T - self.A.T @ newXCov @ newCz.T
+            # E[y_k z_k^T] = C_y \Sigma_x C_z^T + S_{yz} = {C_y}_{bw} \Sigma_x^{-1} {C_z}_{bw}^T + S^b_{yz}
+            newSyz = (self.C @ self.XCov @ self.Cz.T + Syz) - newC @ newXCov @ newCz.T
         newQ = newXCov - self.A.T @ newXCov @ self.A
         newS = self.C.T - self.A.T @ newXCov @ newC.T
         newR = self.YCov - newC @ newXCov @ newC.T
         bw = LSSM(params={"A": newA, "C": newC, "Q": newQ, "R": newR, "S": newS})
-        if hasattr(self, "Cz"):
+        if hasattr(self, "Cz") and self.Cz is not None:
             bw.Cz = newCz
+            bw.Sxz = newSxz
+            bw.Syz = newSyz
         if hasattr(self, "zDims"):
             bw.zDims = self.zDims
         return bw
@@ -1578,7 +1592,7 @@ class LSSM:
                 ):
                     setattr(self, f, E @ val @ EInv)  # newA = E * A * EInv
 
-        BLikeFields = {"B", "S", "G", "K", "Kf", "Kv"}
+        BLikeFields = {"B", "S", "Sxz", "G", "K", "Kf", "Kv"}
         for f in BLikeFields:
             if hasattr(self, f):
                 val = getattr(self, f)
