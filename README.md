@@ -2,6 +2,7 @@
 - [Publications](#publications)
   - [PSID](#psid)
   - [IPSID](#ipsid)
+  - [PSID with filtering and smoothing](#psid-with-filtering-and-smoothing)
 - [Usage guide](#usage-guide)
   - [Installation](#installation)
   - [Initialization](#initialization)
@@ -42,6 +43,13 @@ https://twitter.com/MaryamShanechi/status/1325835609345122304
 For the derivation of IPSID and results in real neural data see the paper below.
 
 Parsa Vahidi*, Omid G. Sani*, Maryam M. Shanechi. *Modeling and dissociation of intrinsic and input-driven neural population dynamics underlying behavior*. PNAS (2024). https://doi.org/10.1073/pnas.2212887121
+
+## PSID with filtering and smoothing
+For the derivation of PSID with filtering and smoothing and simulation/neural data results see the paper below.
+
+Omid G. Sani*, Mohammad Hosseini*, Trisha Jha*, Maryam M. Shanechi. *Preferential dynamic modeling with forward-backward smoothing*. Preprint: https://openreview.net/pdf?id=vFZhylvjKq
+
+Reproduction scripts for the key simulation results are in [paper/](https://github.com/ShanechiLab/PyPSID/blob/main/paper/README.md).
 
 
 # Usage guide
