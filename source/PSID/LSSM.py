@@ -1285,6 +1285,26 @@ class LSSM:
         allXs = np.empty((N, self.state_dim))  # X(i|N)
         allXs[-1, :] = allXf[-1, :]  # X(N|N)
 
+        has_S = (
+            hasattr(self, "S")
+            and self.S is not None
+            and self.S.size > 0
+            and np.any(self.S != 0)
+        )
+        A_smth = self.A
+        use_per_step_Kf = False
+        if has_S:
+            if (
+                hasattr(self, "R")
+                and self.R is not None
+                and self.R.size > 0
+                and np.linalg.cond(self.R) < 1e12
+            ):
+                SRinv = np.linalg.lstsq(self.R.T, self.S.T, rcond=None)[0].T
+                A_smth = self.A - SRinv @ self.C
+            else:
+                use_per_step_Kf = True
+
         if not steady_state:
             if return_state_cov:
                 allPs = np.zeros((N, self.state_dim, self.state_dim))  # P(i|N)
@@ -1301,9 +1321,10 @@ class LSSM:
         else:
             # Calc smoother gain at steady state(ish) [MAY BLOW UP, in which case you should NOT use steady state]
             P = self.Pp - self.Kf @ self.C @ self.Pp
-            L = np.linalg.lstsq(self.Pp.T, (P * self.A.T).T, rcond=None)[
+            cross_cov = P @ self.A.T - (self.Kf @ self.S.T if has_S else 0)
+            L = np.linalg.lstsq(self.Pp.T, cross_cov.T, rcond=None)[
                 0
-            ].T  # (P * self.A.T) / self.Pp  ===> L(i) = P(i|i) * A.' * inv( P(i+1|i) )
+            ].T  # L(i) = (P(i|i) * A.' - Kf * S.') * inv( P(i+1|i) )
 
             if return_state_cov:
                 # Steady state Ps = P(i|N) is the solution to
@@ -1317,11 +1338,19 @@ class LSSM:
         # Kalman smoother
         for i in reversed(range(N - 1)):  # From N-2 to 0
             if not steady_state:
+                if use_per_step_Kf:
+                    ziCov = self.C @ allPp[i, :, :] @ self.C.T + self.R
+                    Kf_i = np.linalg.lstsq(
+                        ziCov.T, (allPp[i, :, :] @ self.C.T).T, rcond=None
+                    )[0].T
+                    cross_cov = allPf[i, :, :] @ self.A.T - Kf_i @ self.S.T
+                else:
+                    cross_cov = allPf[i, :, :] @ A_smth.T
                 Li = np.linalg.lstsq(
-                    allPp[i + 1, :, :].T, (allPf[i, :, :] @ self.A.T).T, rcond=None
+                    allPp[i + 1, :, :].T, cross_cov.T, rcond=None
                 )[
                     0
-                ].T  # (allPf[i,:,:] @ self.A.T) / allPp[i+1,:,:]  ===> # L(i) = P(i|i) * A.' * inv( P(i+1|i) )
+                ].T  # L(i) = (P(i|i) * A.' - Kf(i) * S.') * inv( P(i+1|i) )
                 if return_state_cov:
                     allPs[i, :, :] = (
                         allPf[i, :, :]
