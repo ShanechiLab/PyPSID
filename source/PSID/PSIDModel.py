@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import numpy as np
 
+from .IPSID import IPSID as IPSIDFunc
 from .PSID import PSID as PSIDFunc
 from .PSID import blkhankskip
 from .ReducedRankRegressor import ReducedRankRegressor
@@ -51,10 +52,21 @@ def evalPerformanceMetrics(
 
 
 def trainAndEvalFold(
-    Z, Y, fold, nx, n1, i, default_inference, zShift=None, logStr=None, **kwargs
+    Z,
+    Y,
+    fold,
+    nx,
+    n1,
+    i,
+    default_inference,
+    zShift=None,
+    U=None,
+    n3=0,
+    logStr=None,
+    **kwargs,
 ):
     """
-    Trains and evaluates a PSID model on a single fold of data.
+    Trains and evaluates a PSID/IPSID model on a single fold of data.
 
     Args:
         Z (np.ndarray or list): The behavioral data.
@@ -65,6 +77,8 @@ def trainAndEvalFold(
         i (int or list): Horizon(s) for constructing Hankel matrices.
         default_inference (str): The default inference mode ('prediction', 'filtering', 'smoothing').
         zShift (int, optional): Shift to apply to Z data. Defaults to None.
+        U (np.ndarray or list, optional): External input data (for IPSID). Defaults to None.
+        n3 (int, optional): Number of behavior-only input-driven states (for IPSID). Defaults to 0.
         logStr (str, optional): Logging string. Defaults to None.
         **kwargs: Additional arguments for PSIDModel and its fit method.
 
@@ -72,26 +86,38 @@ def trainAndEvalFold(
         dict: A dictionary containing the trained 'model' and performance 'perf'.
     """
     if isinstance(Z, (list, tuple)):
-        ZTrain = [Z[i] for i in range(len(Z)) if i in fold["train_inds"]]
-        YTrain = [Y[i] for i in range(len(Y)) if i in fold["train_inds"]]
+        ZTrain = [Z[idx] for idx in range(len(Z)) if idx in fold["train_inds"]]
+        YTrain = [Y[idx] for idx in range(len(Y)) if idx in fold["train_inds"]]
+        UTrain = (
+            [U[idx] for idx in range(len(U)) if idx in fold["train_inds"]]
+            if U is not None
+            else None
+        )
     else:
         ZTrain = Z[fold["train_inds"], :]
         YTrain = Y[fold["train_inds"], :]
+        UTrain = U[fold["train_inds"], :] if U is not None else None
     try:
         model = PSIDModel(
-            nx=nx, n1=n1, i=i, default_inference=default_inference, zShift=zShift
+            nx=nx, n1=n1, i=i, n3=n3, default_inference=default_inference, zShift=zShift
         )
         if "time_first" in kwargs:
             kwargs["time_first"] = True
-        model.fit(YTrain, ZTrain, enable_all_inference=False, **kwargs)
+        model.fit(YTrain, ZTrain, U=UTrain, enable_all_inference=False, **kwargs)
         model.verbose = False
         if isinstance(Z, (list, tuple)):
-            ZTest = [Z[i] for i in range(len(Z)) if i in fold["test_inds"]]
-            YTest = [Y[i] for i in range(len(Y)) if i in fold["test_inds"]]
+            ZTest = [Z[idx] for idx in range(len(Z)) if idx in fold["test_inds"]]
+            YTest = [Y[idx] for idx in range(len(Y)) if idx in fold["test_inds"]]
+            UTest = (
+                [U[idx] for idx in range(len(U)) if idx in fold["test_inds"]]
+                if U is not None
+                else None
+            )
         else:
             YTest = Y[fold["test_inds"], :]
             ZTest = Z[fold["test_inds"], :]
-        allZp, allYp, allXp = model.predict(YTest)
+            UTest = U[fold["test_inds"], :] if U is not None else None
+        allZp, allYp, allXp = model.predict(YTest, U=UTest)
 
         perf = {}
         perf.update(evalPerformanceMetrics(ZTest, allZp, prefix="z"))
@@ -274,6 +300,7 @@ class PSIDModel:
         updateKfKv=None,
         zShift=None,  # A shift to apply as preprocessing during learning and undo during prediction. if zShift=1, the normal PSID would attempt to optimize and return z{k|k} instead of the default z{k|k-1}.
         steps_ahead=None,  # Number of steps ahead for prediction.
+        n3=0,  # Number of behavior-only input-driven states (for IPSID additional step 2).
     ):
         """
         Initializes the PSIDModel.
@@ -294,6 +321,7 @@ class PSIDModel:
             updateKfKv (bool, optional): Whether to update Kf and Kv from estimated Kalman gain. Defaults to False.
             zShift (int, optional): A shift for behavioral data Z. Can be used for lag compensation. Defaults to None.
             steps_ahead (int, optional): Number of steps ahead for prediction. Defaults to None.
+            n3 (int, optional): Number of behavior-only input-driven states (for IPSID additional step 2). Defaults to 0.
         """
         self.nx = nx
         self.n1 = n1
@@ -325,6 +353,7 @@ class PSIDModel:
         self.updateKfKv = updateKfKv
         self.zShift = zShift
         self.steps_ahead = steps_ahead
+        self.n3 = n3
         self.info = {}
 
     def set_default_inference(self, default_inference):
@@ -360,31 +389,39 @@ class PSIDModel:
             iZ = self.i[-1]
         return iY, iZ
 
-    def fit(self, Y, Z=None, enable_all_inference=None, time_first=True, **kwargs):
+    def fit(
+        self, Y, Z=None, U=None, enable_all_inference=None, time_first=True, **kwargs
+    ):
         """
-        Fits the PSID model to the data.
+        Fits the PSID (or IPSID, when U is provided) model to the data.
 
         If hyperparameters (nx, n1, iY, iZ) are not specified during initialization,
         this method will first perform a hyperparameter search. Then, it fits the
-        main PSID model. If `enable_all_inference` is True or `default_inference`
+        main PSID/IPSID model. If `enable_all_inference` is True or `default_inference`
         is 'filtering' or 'smoothing', it also fits models required for these
         inference types.
 
         Args:
             Y (np.ndarray or list): Neural data.
             Z (np.ndarray or list, optional): Behavioral data. Defaults to None.
+            U (np.ndarray or list, optional): External input data (triggers IPSID). Defaults to None.
             enable_all_inference (bool, optional): If True, enables filtering and smoothing capabilities
                 by fitting additional necessary models. Defaults to `self.zShift is None or self.zShift == 0`.
-            time_first (bool, optional): Whether the time dimension is the first axis of Y and Z. Defaults to True.
-            **kwargs: Additional arguments passed to the PSID function.
+            time_first (bool, optional): Whether the time dimension is the first axis of Y, Z, and U. Defaults to True.
+            **kwargs: Additional arguments passed to the PSID/IPSID function.
         """
+        if U is not None and self.default_inference == "smoothing":
+            raise ValueError(
+                "Forward-backward smoothing is not supported with external input U (IPSID); use 'prediction' or 'filtering'."
+            )
+
         if enable_all_inference is None:
             enable_all_inference = self.zShift is None or self.zShift == 0
 
         iY, iZ = self.get_horizons()
         if (iY is None and iZ is None) or self.n1 is None or self.nx is None:
             param_selected, param_sets, param_results, best_param_ind = (
-                self._find_hyper_params(Y, Z=Z, **kwargs)
+                self._find_hyper_params(Y, Z=Z, U=U, **kwargs)
             )
             self.param_selected = param_selected
             self.param_sets = param_sets
@@ -411,23 +448,37 @@ class PSIDModel:
             ZTrain = Z
         iY, iZ = self.get_horizons()
         tic = time.perf_counter()
-        model = PSIDFunc(
-            Y=Y,
-            Z=ZTrain,
-            nx=self.nx,
-            n1=self.n1,
-            i=[iY, iZ],
-            time_first=time_first,
-            **kwargs,
-        )
+        if U is None:
+            model = PSIDFunc(
+                Y=Y,
+                Z=ZTrain,
+                nx=self.nx,
+                n1=self.n1,
+                i=[iY, iZ],
+                time_first=time_first,
+                **kwargs,
+            )
+        else:
+            model = IPSIDFunc(
+                Y=Y,
+                Z=ZTrain,
+                U=U,
+                nx=self.nx,
+                n1=self.n1,
+                n3=self.n3,
+                i=[iY, iZ],
+                time_first=time_first,
+                **kwargs,
+            )
         model.zDims = np.arange(1, 1 + min([self.n1, self.nx]))
 
         if enable_all_inference or self.default_inference in ["filtering", "smoothing"]:
             YTF = Y if time_first else transposeIf(Y)
             ZTF = Z if time_first else transposeIf(Z)
+            UTF = (U if time_first else transposeIf(U)) if U is not None else None
             nz = get_shape(ZTF)[1] if ZTF is not None else 0
             # Regression to find optimal Cz * Kf for K|k filtering
-            Zp, Yp, Xp = model.predict(YTF)
+            Zp, Yp, Xp = model.predict(YTF, U=UTF)
             fltGzKf = updateFilteringParam(
                 model,
                 catIf(subtractIf(YTF, Yp), axis=0),
@@ -444,7 +495,10 @@ class PSIDModel:
         else:
             fltCzKf, fltGzKf, Yf = None, None, None
 
-        if enable_all_inference or self.default_inference in ["smoothing"]:
+        if (
+            (enable_all_inference or self.default_inference in ["smoothing"])
+            and U is None
+        ):
             # Time-reversed model for optimal backward pass for K|N smoothing
             YBW = (
                 applyFuncIf(subtractIf(YTF, Yf), np.flipud)
@@ -456,17 +510,31 @@ class PSIDModel:
                 if self.bw_on_residual
                 else applyFuncIf(ZTF, np.flipud)
             )
-            modelBW = PSIDFunc(
-                Y=YBW,
-                Z=ZBW,
-                nx=self.nx,
-                n1=self.n1,
-                i=[iY, iZ],
-                time_first=True,
-                **kwargs,
-            )
+            UBW = applyFuncIf(UTF, np.flipud) if UTF is not None else None
+            if UBW is None:
+                modelBW = PSIDFunc(
+                    Y=YBW,
+                    Z=ZBW,
+                    nx=self.nx,
+                    n1=self.n1,
+                    i=[iY, iZ],
+                    time_first=True,
+                    **kwargs,
+                )
+            else:
+                modelBW = IPSIDFunc(
+                    Y=YBW,
+                    Z=ZBW,
+                    U=UBW,
+                    nx=self.nx,
+                    n1=self.n1,
+                    n3=self.n3,
+                    i=[iY, iZ],
+                    time_first=True,
+                    **kwargs,
+                )
             modelBW.zDims = np.arange(1, 1 + min([self.n1, self.nx]))
-            ZpBW, YpBW, XpBW = modelBW.predict(YBW)
+            ZpBW, YpBW, XpBW = modelBW.predict(YBW, U=UBW)
             fltGzKfBW = updateFilteringParam(
                 modelBW,
                 catIf(subtractIf(YBW, YpBW), axis=0),
@@ -508,6 +576,7 @@ class PSIDModel:
         self.fltGzKf = fltGzKf
         self.modelBW = modelBW
         self.fltCzKfBW = fltCzKfBW
+        self._has_external_input = U is not None
         self.fltGzKfBW = fltGzKfBW
         self.trained = True
         self.info = {"trained": True, "idTime": idTime}
@@ -522,7 +591,7 @@ class PSIDModel:
         if hasattr(self, "param_results"):
             self.param_results = None
 
-    def _find_hyper_params(self, Y, Z=None, **kwargs):
+    def _find_hyper_params(self, Y, Z=None, U=None, **kwargs):
         """
         Finds the best hyperparameters using cross-validation.
 
@@ -661,6 +730,8 @@ class PSIDModel:
                     "logStr": logStr,
                     "Z": Z,
                     "Y": Y,
+                    "U": U,
+                    "n3": self.n3,
                     "iCV_folds": iCV_folds,
                     "nx": nx,
                     "n1": param["n1"],
@@ -770,7 +841,10 @@ class PSIDModel:
         """
         if isinstance(Y, (list, tuple)):
             for trialInd, trialY in enumerate(Y):
-                trialOuts = self.predict(trialY, U=U, **kwargs)
+                trialU = U[trialInd] if isinstance(U, (list, tuple)) else U
+                trialOuts = self.predict(
+                    trialY, U=trialU, steady_state=steady_state, **kwargs
+                )
                 if trialInd == 0:
                     outs = [[o] for oi, o in enumerate(trialOuts)]
                 else:
@@ -787,6 +861,12 @@ class PSIDModel:
             outs = list(outs)
             outs[0] = Zf
             outs = tuple(outs)
+        if self.default_inference in ["smoothing"] and (
+            U is not None or getattr(self, "_has_external_input", False)
+        ):
+            raise ValueError(
+                "Forward-backward smoothing is not supported with external input U (IPSID); use 'prediction' or 'filtering'."
+            )
         if self.default_inference in ["filtering", "smoothing"]:
             if steps_ahead != [1]:
                 raise (
@@ -807,8 +887,9 @@ class PSIDModel:
                 YBW = np.flipud(Y - Yf)
             else:
                 YBW = np.flipud(Y)
+            UBW = np.flipud(U) if U is not None else None
             outsBW = self.modelBW.predict(
-                YBW, return_state_cov=return_state_cov, **kwargs
+                YBW, U=UBW, return_state_cov=return_state_cov, **kwargs
             )
             ZpBW, YpBW, XpBW = outsBW[:3]
             ZfBW = ZpBW + (self.fltCzKfBW @ (YBW - YpBW).T).T
@@ -823,6 +904,12 @@ class PSIDModel:
                     bwCovs = self.modelBW.Pp
                 Zs = (Zf + np.flipud(ZfBW)) / 2
             ZpReturn = Zs
+        if self.default_inference in ["smoothing"] and (
+            U is not None or getattr(self, "_has_external_input", False)
+        ):
+            raise ValueError(
+                "Forward-backward smoothing is not supported with external input U (IPSID); use 'prediction' or 'filtering'."
+            )
         if self.default_inference in ["filtering", "smoothing"]:
             outs = list(outs)
             outs[0] = ZpReturn

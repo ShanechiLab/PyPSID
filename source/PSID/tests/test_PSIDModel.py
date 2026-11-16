@@ -371,6 +371,106 @@ class TestPSID(unittest.TestCase):
         self.assertLess(perf["fltCzKfErrNormed"], 5e-2)
         self.assertLess(perf["fltCzKfBWErrNormed"], 5e-2)
 
+    def test_IPSID(self):
+        """Tests PSIDModel with external input U (IPSID) across continuous, trial-based, filtering/smoothing, n3, and hyperparam search."""
+        from PSID.MatHelper import loadmat
+
+        np.random.seed(42)
+        example_dir = os.path.join(os.path.dirname(__file__), "..", "example")
+        data = loadmat(os.path.join(example_dir, "sample_model_IPSID.mat"))
+
+        N = int(1e4)
+        uSys = data["uSys"]
+        from PSID.LSSM import LSSM
+
+        u, _ = LSSM(params=uSys).generateRealization(N)
+        trueSys = LSSM(params=data["trueSys"])
+        trueSys.Dz = trueSys.dz
+        y, x = trueSys.generateRealization(N, u=u)
+        z = (trueSys.Cz @ x.T).T + (trueSys.Dz @ u.T).T
+        _, x_eps = LSSM(params=data["epsSys"]).generateRealization(N)
+        z += (LSSM(params=data["epsSys"]).Cz @ x_eps.T).T
+
+        yTrain, yTest = y[:5000], y[5000:]
+        zTrain, zTest = z[:5000], z[5000:]
+        uTrain, uTest = u[:5000], u[5000:]
+
+        # Continuous + prediction / filtering (smoothing is disallowed for U)
+        m = PSIDModel(nx=6, n1=2, i=10)
+        m.fit(yTrain, zTrain, U=uTrain)
+        r2_by_mode = {}
+        for mode in ["prediction", "filtering"]:
+            m.set_default_inference(mode)
+            zp, yp, _ = m.predict(yTest, U=uTest)
+            r2_by_mode[mode] = np.mean(evalPrediction(zTest, zp, "R2"))
+            self.assertGreater(np.mean(evalPrediction(yTest, yp, "R2")), 0.7)
+        self.assertGreater(r2_by_mode["prediction"], 0.85)
+        self.assertGreaterEqual(r2_by_mode["filtering"], r2_by_mode["prediction"])
+
+        m.set_default_inference("smoothing")
+        with self.assertRaises(ValueError):
+            m.predict(yTest, U=uTest)
+        with self.assertRaises(ValueError):
+            PSIDModel(nx=2, n1=2, i=10, default_inference="smoothing").fit(
+                yTrain, zTrain, U=uTrain
+            )
+
+        # time_first=False
+        m_tf = PSIDModel(nx=2, n1=2, i=10)
+        m_tf.fit(yTrain.T, zTrain.T, U=uTrain.T, time_first=False)
+        zp_tf, _, _ = m_tf.predict(yTest, U=uTest)
+        self.assertGreater(np.mean(evalPrediction(zTest, zp_tf, "R2")), 0.85)
+
+        # Trial-based
+        yTr = [yTrain[:2500], yTrain[2500:]]
+        zTr = [zTrain[:2500], zTrain[2500:]]
+        uTr = [uTrain[:2500], uTrain[2500:]]
+        yTe = [yTest[:2500], yTest[2500:]]
+        zTe = [zTest[:2500], zTest[2500:]]
+        uTe = [uTest[:2500], uTest[2500:]]
+        m_tr = PSIDModel(nx=2, n1=2, i=10)
+        m_tr.fit(yTr, zTr, U=uTr)
+        zp_tr, _, _ = m_tr.predict(yTe, U=uTe)
+        self.assertEqual(len(zp_tr), 2)
+        self.assertGreater(
+            np.mean(evalPrediction(np.concatenate(zTe), np.concatenate(zp_tr), "R2")),
+            0.85,
+        )
+
+        # Hyperparameter search with U (use compact slice for fast test runtime)
+        m_hp = PSIDModel(
+            nx=4,
+            hyper_param_settings={
+                "folds": 2,
+                "min_cpu_for_parallel": 999,
+                "n1_values": [1, 2],
+                "iY_values": [10],
+                "iZ_values": [10],
+            },
+        )
+        m_hp.fit(yTrain[:1500], zTrain[:1500], U=uTrain[:1500])
+        self.assertEqual(m_hp.param_selected["n1"], 2)
+
+        # n3 > 0 (additional steps)
+        data2 = loadmat(os.path.join(example_dir, "sample_model_IPSID_add_step.mat"))
+        u2, _ = LSSM(params=data2["uSys"]).generateRealization(N)
+        trueSys2 = LSSM(params=data2["trueSys"])
+        y2, x2 = trueSys2.generateRealization(N, u=u2)
+        z2 = (trueSys2.Cz @ x2.T).T
+        _, x_eps2 = LSSM(params=data2["epsSys"]).generateRealization(N)
+        z2 += (LSSM(params=data2["epsSys"]).Cz @ x_eps2.T).T
+        m2 = PSIDModel(nx=6, n1=2, n3=2, i=10)
+        m2.fit(
+            y2[:5000],
+            z2[:5000],
+            U=u2[:5000],
+            remove_nonYrelated_fromX1=True,
+            n_pre=4,
+        )
+        zp2, _, _ = m2.predict(y2[5000:], U=u2[5000:])
+        self.assertEqual(m2.model.state_dim, 6)
+        self.assertGreater(np.mean(evalPrediction(z2[5000:], zp2, "R2")), 0.4)
+
 
 if __name__ == "__main__":
     unittest.main()
