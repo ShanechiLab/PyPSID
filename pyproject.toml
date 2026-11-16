@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "PSID"
-version = "1.2.6"
+version = "2.0.0"
 authors = [
     {name = "Omid Sani", email = "omidsani@gmail.com"},
 ]
@@ -30,3 +30,6 @@ readme = {file = ["README.md"], content-type = "text/markdown"}
 
 [tool.setuptools.packages.find]
 where = ["source"]  # list of folders that contain the packages (["."] by default)
+
+[tool.setuptools.package-data]
+PSID = ["example/*.mat"]

@@ -27,7 +27,7 @@ with open(readme_file_path, "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="PSID",
-    version="1.2.5",
+    version="2.0.0",
     author="Omid Sani",
     author_email="omidsani@gmail.com",
     description="Python implementation for preferential subspace identification (PSID)",
@@ -41,6 +41,6 @@ setuptools.setup(
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.6",
+    python_requires=">=3.10",
     # install_requires=requirements,
 )
