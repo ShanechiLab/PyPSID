@@ -306,7 +306,7 @@ class PSIDModel:
             self.hyper_param_settings["max_horizon"] = 50
         if "selection_criteria" not in self.hyper_param_settings:
             self.hyper_param_settings["selection_criteria"] = "meanzR2"
-        if "min_cpu_for_parallel":
+        if "min_cpu_for_parallel" not in self.hyper_param_settings:
             self.hyper_param_settings["min_cpu_for_parallel"] = 4
         self.set_default_inference(default_inference)
         if bw_on_residual is None:
