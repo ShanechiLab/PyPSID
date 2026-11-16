@@ -229,10 +229,13 @@ def _fit_and_eval_psid(true_sys, y_train, z_train, y_test, z_test, horizon):
     return param_errs, decoding
 
 
-def _save_realization_parquet(data_path, y_all, x_all, z_all):
-    """Writes simulated (y, x, z) time-series to a zstd-compressed Parquet file."""
+def _save_realization_parquet(data_path, y_all, x_all, z_all, u_all=None):
+    """Writes simulated (y, x, z[, u]) time-series to a zstd-compressed Parquet file."""
     arrays, names = [], []
-    for prefix, arr in [("y", y_all), ("x", x_all), ("z", z_all)]:
+    series = [("y", y_all), ("x", x_all), ("z", z_all)]
+    if u_all is not None:
+        series.append(("u", u_all))
+    for prefix, arr in series:
         for j in range(arr.shape[1]):
             arrays.append(pa.array(arr[:, j]))
             names.append(f"{prefix}_{j}")
@@ -240,28 +243,39 @@ def _save_realization_parquet(data_path, y_all, x_all, z_all):
         b"ny": str(y_all.shape[1]).encode(),
         b"nx": str(x_all.shape[1]).encode(),
         b"nz": str(z_all.shape[1]).encode(),
+        b"nu": str(u_all.shape[1] if u_all is not None else 0).encode(),
     }
     table = pa.Table.from_arrays(arrays, names=names, metadata=meta)
     pq.write_table(table, data_path, compression="zstd")
 
 
-def _load_realization_parquet(data_path, n_total):
-    """Loads (y, z) up to n_total rows from a Parquet realization file if long enough."""
+def _load_realization_parquet(data_path, n_total, load_u=False):
+    """Loads (y, z[, u]) up to n_total rows from a Parquet realization file if long enough."""
     pf = pq.ParquetFile(data_path)
     if pf.metadata.num_rows < n_total:
         return None
     s_meta = pf.schema_arrow.metadata or {}
     ny = int(s_meta[b"ny"])
     nz = int(s_meta[b"nz"])
+    nu = int(s_meta.get(b"nu", b"0"))
     cols = [f"y_{j}" for j in range(ny)] + [f"z_{j}" for j in range(nz)]
+    if load_u and nu > 0:
+        cols += [f"u_{j}" for j in range(nu)]
     tbl = pq.read_table(data_path, columns=cols).slice(0, n_total)
     y_all = np.column_stack([tbl.column(f"y_{j}").to_numpy() for j in range(ny)])
     z_all = np.column_stack([tbl.column(f"z_{j}").to_numpy() for j in range(nz)])
+    if load_u:
+        u_all = (
+            np.column_stack([tbl.column(f"u_{j}").to_numpy() for j in range(nu)])
+            if nu > 0
+            else None
+        )
+        return y_all, z_all, u_all
     return y_all, z_all
 
 
 def _load_or_generate_realization(
-    sys_settings, sys_idx, n_total, seed, realizations_dir
+    sys_settings, sys_idx, n_total, seed, realizations_dir, with_u=False
 ):
     """Loads cached random LSSM and data or generates and saves them to disk."""
     os.makedirs(realizations_dir, exist_ok=True)
@@ -270,20 +284,31 @@ def _load_or_generate_realization(
     data_path = os.path.join(realizations_dir, f"{stem}_data.parquet")
 
     if os.path.exists(model_path) and os.path.exists(data_path):
-        loaded = _load_realization_parquet(data_path, n_total)
+        loaded = _load_realization_parquet(data_path, n_total, load_u=with_u)
         if loaded is not None:
             with open(model_path, "rb") as f:
                 true_sys = pickle.load(f)
+            if with_u:
+                return true_sys, loaded[0], loaded[1], loaded[2]
             return true_sys, loaded[0], loaded[1]
 
     np.random.seed(seed + sys_idx)
-    true_sys, _, _ = generateRandomLinearModel(sys_settings)
-    y_all, x_all, z_all = true_sys.generateRealization(
-        n_total, random_x0=False, return_z=True
-    )
+    true_sys, sys_u, _ = generateRandomLinearModel(sys_settings)
+    if with_u and sys_u is not None:
+        u_all, _ = sys_u.generateRealization(n_total)
+        y_all, x_all, z_all = true_sys.generateRealization(
+            n_total, u=u_all, random_x0=False, return_z=True
+        )
+    else:
+        u_all = None
+        y_all, x_all, z_all = true_sys.generateRealization(
+            n_total, random_x0=False, return_z=True
+        )
     with open(model_path, "wb") as f:
         pickle.dump(true_sys, f)
-    _save_realization_parquet(data_path, y_all, x_all, z_all)
+    _save_realization_parquet(data_path, y_all, x_all, z_all, u_all=u_all)
+    if with_u:
+        return true_sys, y_all, z_all, u_all
     return true_sys, y_all, z_all
 
 
@@ -297,11 +322,19 @@ def _eval_cache_path(cache_dir, sys_idx, seed, n_train_max, n_test, horizon):
 
 
 def _run_or_load_system(
-    sys_settings, sys_idx, n_trains, n_train_max, n_test, horizon, seed, output_dir
+    sys_settings,
+    sys_idx,
+    n_trains,
+    n_train_max,
+    n_test,
+    horizon,
+    seed,
+    output_dir,
+    sys_code=PAPER_SYS_CODE,
 ):
     """Evaluates a single system, reusing cached realizations and metrics."""
-    realizations_dir = os.path.join(output_dir, "realizations")
-    cache_dir = os.path.join(output_dir, "cache")
+    realizations_dir = os.path.join(output_dir, "realizations", sys_code)
+    cache_dir = os.path.join(output_dir, "cache", sys_code)
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = _eval_cache_path(
         cache_dir, sys_idx, seed, n_train_max, n_test, horizon
