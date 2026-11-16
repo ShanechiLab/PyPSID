@@ -1,4 +1,10 @@
-"""Reproduce key simulation results from the smoothing PSID paper.
+"""
+Copyright (c) 2026 University of Southern California
+See full notice in LICENSE.md
+Omid G. Sani and Maryam M. Shanechi
+Shanechi Lab, University of Southern California
+
+Reproduce key simulation results from the smoothing PSID paper.
 
 Generates random linear state-space systems following the paper's benchmark
 distribution, fits PSIDModel (prediction, causal filtering, and non-causal

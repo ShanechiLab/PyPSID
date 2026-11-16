@@ -1,6 +1,11 @@
-"""Omid Sani, Shanechi Lab, University of Southern California, 2023"""
+"""
+Copyright (c) 2026 University of Southern California
+See full notice in LICENSE.md
+Omid G. Sani and Maryam M. Shanechi
+Shanechi Lab, University of Southern California
 
-"A class for for training PSID models"
+A class for training PSID models
+"""
 
 import logging
 import multiprocessing
