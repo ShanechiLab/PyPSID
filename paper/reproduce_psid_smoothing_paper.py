@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import pickle
+import shutil
 import sys
 import time
 
@@ -775,6 +776,11 @@ def parse_args(argv=None):
         help="Directory to write summary_metrics.json and plots.",
     )
     parser.add_argument(
+        "--figures-dir",
+        default=None,
+        help="Optional directory to also copy summary_tables.md and PNG figures (e.g., paper/figures).",
+    )
+    parser.add_argument(
         "--no-plots",
         action="store_true",
         help="Skip saving summary figures.",
@@ -810,6 +816,17 @@ def main(argv=None):
     if not args.no_plots:
         _save_plots(results, summary, args.output_dir)
         print(f"Saved plots to {args.output_dir}")
+
+    if args.figures_dir:
+        os.makedirs(args.figures_dir, exist_ok=True)
+        files_to_copy = ["summary_tables.md"]
+        if not args.no_plots:
+            files_to_copy += ["fig2_decoding_scatter.png", "fig5_param_convergence.png"]
+        for fname in files_to_copy:
+            src = os.path.join(args.output_dir, fname)
+            if os.path.exists(src):
+                shutil.copy2(src, os.path.join(args.figures_dir, fname))
+        print(f"Copied summary tables and PNG figures to {args.figures_dir}")
 
 
 if __name__ == "__main__":

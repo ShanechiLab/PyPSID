@@ -7,7 +7,7 @@ Shanechi Lab, University of Southern California
 Validate causal filtering (k|k) for IPSID (nu > 0) on random linear models.
 
 Reuses the simulation, Parquet caching, and reporting utilities from
-`paper/reproduce_smoothing_sim.py`, storing results under
+`paper/reproduce_psid_smoothing_paper.py`, storing results under
 `paper/results/realizations/<sys_code>/` and `paper/results/cache/<sys_code>/`.
 """
 
@@ -25,7 +25,7 @@ for _p in (_PAPER_DIR, _SOURCE_DIR):
         sys.path.insert(0, _p)
 
 import numpy as np  # noqa: E402
-import reproduce_smoothing_sim as rss  # noqa: E402
+import reproduce_psid_smoothing_paper as rss  # noqa: E402
 
 from PSID import PSIDModel  # noqa: E402
 from PSID.evaluation import evalSysId  # noqa: E402
