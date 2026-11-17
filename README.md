@@ -47,7 +47,7 @@ Parsa Vahidi*, Omid G. Sani*, Maryam M. Shanechi. *Modeling and dissociation of 
 ## PSID with filtering and smoothing
 For the derivation of PSID with filtering and smoothing and simulation/neural data results see the paper below.
 
-Omid G. Sani*, Mohammad Hosseini*, Trisha Jha*, Maryam M. Shanechi. *Preferential dynamic modeling with forward-backward smoothing*. Preprint: https://openreview.net/pdf?id=vFZhylvjKq
+Omid G. Sani*, Mohammad Hosseini*, Trisha Jha*, Maryam M. Shanechi. *Preferential dynamic modeling with forward-backward smoothing*. NeurIPS (2026). https://openreview.net/pdf?id=vFZhylvjKq
 
 Reproduction scripts for the key simulation results are in [paper/](https://github.com/ShanechiLab/PyPSID/blob/main/paper/README.md).
 
@@ -74,14 +74,15 @@ The main interfaces for the Python implementation are:
 
 A complete usage guide is available in the docstrings of each class/function. The following shows example use cases:
 ```python
-# PSIDModel API (supports prediction, filtering, smoothing, and hyperparameter search)
+# PSIDModel API (supports prediction, filtering, smoothing, hyperparameter search, and IPSID)
 idSys = PSID.PSIDModel(nx, n1, i)
 idSys.fit(y, z)
+# Or, with external input u (IPSID):
+idSys = PSID.PSIDModel(nx, n1, i)
+idSys.fit(y, z, U=u)
 
-# Functional PSID API (returns an LSSM object)
+# Functional APIs (return an LSSM object directly)
 idSys = PSID.PSID(y, z, nx, n1, i)
-
-# IPSID (when modeling the effect of an external input u is also of interest)
 idSys = PSID.IPSID(y, z, u, nx, n1, i)
 ```
 Inputs:

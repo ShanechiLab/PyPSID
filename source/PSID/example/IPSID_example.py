@@ -96,9 +96,12 @@ def main():
 
     ## (Example 1) IPSID can be used to dissociate and extract only the
     # intrinsic behaviorally relevant latent states (with nx = n1 = 2)
-    idSys1 = PSID.IPSID(yTrain, zTrain, uTrain, nx=2, n1=2, i=10)
+    idSys1 = PSID.PSIDModel(nx=2, n1=2, i=10)
+    idSys1.fit(yTrain, zTrain, U=uTrain)
+    # Original functional API:
+    # idSys1 = PSID.IPSID(yTrain, zTrain, uTrain, nx=2, n1=2, i=10)
     # You can also use the time_first=False argument if time is the second dimension:
-    # idSys1 = PSID.IPSID(yTrain.T, zTrain.T, uTrain.T, nx=2, n1=2, i=10, time_first=False)
+    # idSys1.fit(yTrain.T, zTrain.T, U=uTrain.T, time_first=False)
 
     # Predict behavior using the learned model
     zTestPred1, yTestPred1, xTestPred1 = idSys1.predict(yTest, uTest)
@@ -118,7 +121,10 @@ def main():
 
     ## (Example 2) Optionally, IPSID can additionally also learn the
     # behaviorally irrelevant latent states (with nx = 6, n1 = 2)
-    idSys2 = PSID.IPSID(yTrain, zTrain, uTrain, nx=6, n1=2, i=10)
+    idSys2 = PSID.PSIDModel(nx=6, n1=2, i=10)
+    idSys2.fit(yTrain, zTrain, U=uTrain)
+    # Original functional API:
+    # idSys2 = PSID.IPSID(yTrain, zTrain, uTrain, nx=6, n1=2, i=10)
 
     # In addition to ideal behavior decoding, this model will also have ideal neural self-prediction
     zTestPred2, yTestPred2, xTestPred2 = idSys2.predict(yTest, uTest)
@@ -158,7 +164,10 @@ def main():
     uTrainTrials = [uTrials[ti] for ti in trainInds]
     uTestTrials = [uTrials[ti] for ti in testInds]
 
-    idSys3 = PSID.IPSID(yTrainTrials, zTrainTrials, uTrainTrials, nx=2, n1=2, i=10)
+    idSys3 = PSID.PSIDModel(nx=2, n1=2, i=10)
+    idSys3.fit(yTrainTrials, zTrainTrials, U=uTrainTrials)
+    # Original functional API:
+    # idSys3 = PSID.IPSID(yTrainTrials, zTrainTrials, uTrainTrials, nx=2, n1=2, i=10)
 
     zPredTrials, yPredTrials, xPredTrials = idSys3.predict(yTestTrials, uTestTrials)
     zPredTrialsIdeal, yPredTrialsIdeal, xPredTrialsIdeal = trueSys.predict(
@@ -181,12 +190,12 @@ def main():
     # Plot the true and identified eigenvalues
 
     # (Example 1) Eigenvalues when only learning behaviorally relevant states
-    idEigs1 = np.linalg.eig(idSys1.A)[0]
+    idEigs1 = np.linalg.eig(idSys1.model.A)[0]
 
     # (Example 2) Additional eigenvalues when also learning behaviorally irrelevant states
     # The identified model is already in form of Eq. 1, with behaviorally irrelevant states
     # coming as the last 4 dimensions of the states in the identified model
-    idEigs2 = np.linalg.eig(idSys2.A[2:, 2:])[0]
+    idEigs2 = np.linalg.eig(idSys2.model.A[2:, 2:])[0]
 
     relevantDims = (
         trueSys.zDims - 1
@@ -322,17 +331,26 @@ def main():
     #  encoded in neural activity from those that are not.
 
     # all latent states [x1;x2,x3] (with nx = 6, n1 = 2, n3 = 2)
-    idSys4 = PSID.IPSID(
+    idSys4 = PSID.PSIDModel(nx=6, n1=2, n3=2, i=10)
+    idSys4.fit(
         yTrain,
         zTrain,
-        uTrain,
-        nx=6,
-        n1=2,
-        i=10,
+        U=uTrain,
         remove_nonYrelated_fromX1=True,
-        n_pre=4,
-        n3=2,
-    )  # n_pre should be equal to true n1+true n2
+        n_pre=4,  # n_pre should be equal to true n1+true n2
+    )
+    # Original functional API:
+    # idSys4 = PSID.IPSID(
+    #     yTrain,
+    #     zTrain,
+    #     uTrain,
+    #     nx=6,
+    #     n1=2,
+    #     i=10,
+    #     remove_nonYrelated_fromX1=True,
+    #     n_pre=4,
+    #     n3=2,
+    # )
 
     # Predict behavior using the learned model
     zTestPred4, yTestPred4, xTestPred3 = idSys4.predict(yTest, uTest)
@@ -342,17 +360,14 @@ def main():
     yR2 = evalPrediction(yTest, yTestPred4, "R2")
 
     # For comparison, let's also learn a model without the additional step 2 (only [x1;x2])
-    idSys4_low_dim = PSID.IPSID(
+    idSys4_low_dim = PSID.PSIDModel(nx=4, n1=2, n3=0, i=10)
+    idSys4_low_dim.fit(
         yTrain,
         zTrain,
-        uTrain,
-        nx=4,
-        n1=2,
-        i=10,
+        U=uTrain,
         remove_nonYrelated_fromX1=True,
-        n_pre=4,
-        n3=0,
-    )  # n_pre should be equal to true n1+true n2
+        n_pre=4,  # n_pre should be equal to true n1+true n2
+    )
     zTestPred4_low_dim, yTestPred4_low_dim, xTestPred4_low_dim = idSys4_low_dim.predict(
         yTest, uTest
     )
@@ -379,13 +394,13 @@ def main():
     # Plot the true and identified eigenvalues for IPSID with additional steps
 
     # Intrinsic behaviorally relevant eigenvalues encoded in neural activity
-    idEigs1 = np.linalg.eig(idSys4_low_dim.A[:2, :2])[0]
+    idEigs1 = np.linalg.eig(idSys4_low_dim.model.A[:2, :2])[0]
 
     # Other intrinsic eigenvalues encoded in neural activity
-    idEigs2 = np.linalg.eig(idSys4_low_dim.A[2:, 2:])[0]
+    idEigs2 = np.linalg.eig(idSys4_low_dim.model.A[2:, 2:])[0]
 
     # Behaviorally relevant eigenvalues not encoded in neural activity
-    idEigs3 = np.linalg.eig(idSys4.A[4:, 4:])[0]
+    idEigs3 = np.linalg.eig(idSys4.model.A[4:, 4:])[0]
 
     relevantDims = (
         trueSys.zDims - 1
@@ -494,17 +509,14 @@ def main():
     uTrainTrials = [uTrials[ti] for ti in trainInds]
     uTestTrials = [uTrials[ti] for ti in testInds]
 
-    idSys4 = PSID.IPSID(
+    idSys4 = PSID.PSIDModel(nx=6, n1=2, n3=2, i=10)
+    idSys4.fit(
         yTrainTrials,
         zTrainTrials,
-        uTrainTrials,
-        nx=6,
-        n1=2,
-        i=10,
+        U=uTrainTrials,
         remove_nonYrelated_fromX1=True,
-        n_pre=4,
-        n3=2,
-    )  # n_pre should be equal to true n1+true n2
+        n_pre=4,  # n_pre should be equal to true n1+true n2
+    )
 
     zPredTrials, yPredTrials, xPredTrials = idSys4.predict(yTestTrials, uTestTrials)
     zPredA = np.concatenate(zPredTrials, axis=0)
@@ -524,17 +536,14 @@ def main():
     yR2TrialBasedIdeal = evalPrediction(yTestA, yPredIdealA, "R2")
 
     # For comparison, let's also learn a model without the additional step 2 (only [x1;x2])
-    idSys4_low_dim = PSID.IPSID(
+    idSys4_low_dim = PSID.PSIDModel(nx=4, n1=2, n3=0, i=10)
+    idSys4_low_dim.fit(
         yTrainTrials,
         zTrainTrials,
-        uTrainTrials,
-        nx=4,
-        n1=2,
-        i=10,
+        U=uTrainTrials,
         remove_nonYrelated_fromX1=True,
-        n_pre=4,
-        n3=0,
-    )  # n_pre should be equal to true n1+true n2
+        n_pre=4,  # n_pre should be equal to true n1+true n2
+    )
     zPredTrials_low_dim, yPredTrials_low_dim, xPredTrials_low_dim = (
         idSys4_low_dim.predict(yTestTrials, uTestTrials)
     )
