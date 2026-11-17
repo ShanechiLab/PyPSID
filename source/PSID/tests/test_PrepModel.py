@@ -1,4 +1,4 @@
-""" 
+"""
 Copyright (c) 2020 University of Southern California
 See full notice in LICENSE.md
 Omid G. Sani and Maryam M. Shanechi
@@ -15,9 +15,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import numpy as np
 
+numTests = 100  # Increase this for a slower but more thorough test
+
 
 class TestPrepModel(unittest.TestCase):
+    """Unit tests for the PrepModel class."""
+
     def test_preprocessing(self):
+        """Tests basic preprocessing (z-scoring) functionality."""
         from PSID.PrepModel import PrepModel
 
         np.random.seed(42)
@@ -32,7 +37,7 @@ class TestPrepModel(unittest.TestCase):
 
         for args in arg_sets:
             with self.subTest(ci=args):
-                numTests = 100
+                # numTests = 100
                 for ci in range(numTests):
                     n_dim = np.random.randint(1, 10)
 
@@ -49,6 +54,7 @@ class TestPrepModel(unittest.TestCase):
                         sm = PrepModel()
                         sm.fit(data, time_first=time_first, **args)
 
+                        # Verify input data remains unchanged
                         np.testing.assert_equal(data, dataCopy)
 
                         ddof = args["std_ddof"] if "std_ddof" in args else 1
@@ -61,19 +67,23 @@ class TestPrepModel(unittest.TestCase):
                             newDataStd = np.std(newData, axis=1, ddof=ddof)
 
                         if args["zscore"] or args["remove_mean"]:
+                            # Verify mean is zero
                             np.testing.assert_almost_equal(
                                 newDataMean, np.zeros_like(newDataMean)
                             )
                         if args["zscore"]:
+                            # Verify std is one
                             np.testing.assert_almost_equal(
                                 newDataStd, np.ones_like(newDataStd)
                             )
 
                         recoveredData = sm.apply_inverse(newData, time_first=time_first)
 
+                        # Verify inverse transform recovers original data
                         np.testing.assert_almost_equal(recoveredData, dataCopy)
 
     def test_preprocessing_for_segmented_data(self):
+        """Tests preprocessing with segmented data."""
         from PSID.PrepModel import PrepModel
 
         np.random.seed(42)
@@ -88,7 +98,7 @@ class TestPrepModel(unittest.TestCase):
 
         for args in arg_sets:
             with self.subTest(ci=args):
-                numTests = 100
+                # numTests = 100
                 for ci in range(numTests):
                     n_dim = np.random.randint(1, 10)
 
@@ -127,10 +137,12 @@ class TestPrepModel(unittest.TestCase):
                             newDataStd = np.std(newDataCat, axis=1, ddof=ddof)
 
                         if args["zscore"] or args["remove_mean"]:
+                            # Verify mean is zero
                             np.testing.assert_almost_equal(
                                 newDataMean, np.zeros_like(newDataMean)
                             )
                         if args["zscore"]:
+                            # Verify std is one
                             np.testing.assert_almost_equal(
                                 newDataStd, np.ones_like(newDataStd)
                             )
@@ -138,6 +150,7 @@ class TestPrepModel(unittest.TestCase):
                         recoveredData = sm.apply_inverse(newData, time_first)
 
                         for t in range(len(dataCopy)):
+                            # Verify recovery of segmented data
                             np.testing.assert_almost_equal(
                                 recoveredData[t], dataCopy[t]
                             )

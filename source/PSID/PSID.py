@@ -1,4 +1,4 @@
-""" 
+"""
 Copyright (c) 2020 University of Southern California
 See full notice in LICENSE.md
 Omid G. Sani and Maryam M. Shanechi
@@ -10,8 +10,7 @@ import warnings
 import numpy as np
 from scipy import linalg
 
-from . import LSSM
-from . import PrepModel
+from . import LSSM, PrepModel
 
 
 def projOrth(A, B):
@@ -35,9 +34,18 @@ def projOrth(A, B):
                 )  # or: A / B = A * B.' * pinv(B * B.')
                 isOk = True
             except Exception as e:
-                print('Error: "{}". Will retry...'.format(e))
+                print(e)
+                try:
+                    W = ABCrossCov @ linalg.pinv(BCov)
+                    isOk = True
+                except Exception as e:
+                    print(e)
         if not isOk:
-            raise (Exception(e))
+            raise (
+                Exception(
+                    f"Could not find the projection! Data length may be too small. Exact error: {e}"
+                )
+            )
         AHat = W @ B  # or: A * B.' * pinv(B * B.') * B
     else:
         W = np.zeros((A.shape[0], B.shape[1]))
@@ -61,6 +69,12 @@ def blkhankskip(Y, i, j=None, s=0, time_first=True):
                 H = thisH
             else:
                 H = np.concatenate((H, thisH), axis=1)
+        if H is None:
+            raise (
+                Exception(
+                    f"All data segments were too short. Use a smaller horizon (currently {s}) or longer data segments"
+                )
+            )
     else:
         ny, N = getHSize(Y, i, time_first=time_first)[:2]
         if j is None:
@@ -89,7 +103,7 @@ def getHSize(Y, i, time_first=True):
             ny, ySamples = Y.shape
         N = ySamples - 2 * i + 1
         NTot = N
-        if ySamples > 0:
+        if ySamples > 0 and ny > 0:
             y1 = Y.flatten()[0]
     else:
         ySamples = []
@@ -113,7 +127,7 @@ def getHSize(Y, i, time_first=True):
     return ny, ySamples, N, y1, NTot
 
 
-def fitCzViaKFRegression(s, Y, Z, time_first):
+def fitCzViaKFRegression(s, Y, Z, time_first, missing_marker=None):
     """
     Fits the behavior projection parameter Cz by first estimating
     the latent states with a Kalman filter and then using ordinary
@@ -142,7 +156,11 @@ def fitCzViaKFRegression(s, Y, Z, time_first):
             else:
                 xHat = np.concatenate((xHat, xHatThis), axis=0)
                 ZTF = np.concatenate((ZTF, ZTFThis), axis=0)
-    Cz = projOrth(ZTF.T, xHat.T)[1]
+    if missing_marker is not None:
+        isNotMissing = np.logical_not(np.any(ZTF == missing_marker, axis=1))
+    else:
+        isNotMissing = np.ones(ZTF.shape[0], dtype=bool)
+    Cz = projOrth(ZTF[isNotMissing, :].T, xHat[isNotMissing, :].T)[1]
     return Cz
 
 
@@ -160,6 +178,7 @@ def PSID(
     remove_mean_Z=True,
     zscore_Y=False,
     zscore_Z=False,
+    missing_marker=None,
 ) -> LSSM:
     """
     PSID PSID: Preferential Subspace Identification Algorithm
@@ -212,6 +231,8 @@ def PSID(
                 nx <= ny * i
                 So if you have a low dimensional y or z, you typically would choose larger
                 values for i, and vice versa.
+                i Can also be a list, tuple, or array indicating [iY,iZ], in which case
+                different horizons will be used for Y and Z.
         - (6) WS: the WS output from a previous call using the exact
                 same data. If calling PSID repeatedly with the same data
                 and horizon, several computationally costly steps can be
@@ -234,6 +255,9 @@ def PSID(
         - (13) zscore_Z: if True will z-score Z. It is ok to set this to False,
                     but setting to true may help with stopping some dimensions of
                     data from dominating others. Defaults to True.
+        - (14) missing_marker (default: None): if not None, will discard samples of Z that
+                equal to missing_marker when fitting Cz. Only effective if fit_Cz_via_KF is
+                True
     Outputs:
         - (1) idSys: an LSSM object with the system parameters for
                 the identified system. Will have the following
@@ -248,6 +272,13 @@ def PSID(
         [idSys, WS] = PSID(Y, Z, nx, n1, i, WS, return_WS=True)
         idSysSID = PSID(Y, Z, nx, 0, i)     # Set n1=0 for SID
     """
+    if not isinstance(i, (list, tuple, np.ndarray)):
+        i = [i]
+    iAll = np.array(i)
+    iY = int(iAll[0])  # Horizon for Y
+    iZ = iY if iAll.size < 2 else int(iAll[1])  # Horizon for Z
+    iMax = np.max([iY, iZ])
+
     YPrepModel = PrepModel.PrepModel()
     YPrepModel.fit(Y, remove_mean=remove_mean_Y, zscore=zscore_Y, time_first=time_first)
     Y = YPrepModel.apply(Y, time_first=time_first)
@@ -259,9 +290,9 @@ def PSID(
         )
         Z = ZPrepModel.apply(Z, time_first=time_first)
 
-    ny, ySamples, N, y1, NTot = getHSize(Y, i, time_first=time_first)
+    ny, ySamples, N, y1, NTot = getHSize(Y, iMax, time_first=time_first)
     if Z is not None:
-        nz, zSamples, _, z1, NTot = getHSize(Z, i, time_first=time_first)
+        nz, zSamples, _, z1, NTot = getHSize(Z, iMax, time_first=time_first)
     else:
         nz, zSamples = 0, 0
 
@@ -277,8 +308,10 @@ def PSID(
         and WS["NTot"] == NTot
         and "N" in WS
         and WS["N"] == N
-        and "i" in WS
-        and WS["i"] == i
+        and "iY" in WS
+        and WS["iY"] == iY
+        and "iZ" in WS
+        and WS["iZ"] == iZ
         and "ySamples" in WS
         and WS["ySamples"] == ySamples
         and "zSamples" in WS
@@ -290,32 +323,40 @@ def PSID(
         # Have WS from previous call with the same data
         pass
     else:
-        WS = {"NTot": NTot, "N": N, "i": i, "ySamples": ySamples, "Y1": y1}
+        WS = {
+            "NTot": NTot,
+            "N": N,
+            "i": i,
+            "iY": iY,
+            "iZ": iZ,
+            "ySamples": ySamples,
+            "Y1": y1,
+        }
         if nz > 0:
             WS["zSamples"] = zSamples
             WS["Z1"] = z1
 
     if "Yp" not in WS or WS["Yp"] is None:
-        WS["Yp"] = blkhankskip(Y, i, N, time_first=time_first)
-        WS["Yii"] = blkhankskip(Y, 1, N, i, time_first=time_first)
+        WS["Yp"] = blkhankskip(Y, iY, N, iMax - iY, time_first=time_first)
+        WS["Yii"] = blkhankskip(Y, 1, N, iMax, time_first=time_first)
         if nz > 0:
-            WS["Zii"] = blkhankskip(Z, 1, N, i, time_first=time_first)
+            WS["Zii"] = blkhankskip(Z, 1, N, iMax, time_first=time_first)
 
     if n1 > nx:
         n1 = nx  # n1 can at most be nx
 
     # Stage 1
     if n1 > 0 and nz > 0:
-        if n1 > i * nz:
+        if n1 > iZ * nz:
             raise (
                 Exception(
-                    "n1 (currently {}) must be at most i*nz={}*{}={}. Use a larger horizon i.".format(
-                        n1, i, nz, i * nz
+                    "n1 (currently {}) must be at most iZ*nz={}*{}={}. Use a larger behavior horizon iZ.".format(
+                        n1, iZ, nz, iZ * nz
                     )
                 )
             )
         if "ZHat_U" not in WS or WS["ZHat_U"] is None:
-            Zf = blkhankskip(Z, i, N, i, time_first=time_first)
+            Zf = blkhankskip(Z, iZ, N, iMax, time_first=time_first)
             WS["ZHat"] = projOrth(Zf, WS["Yp"])[
                 0
             ]  # Zf @ WS['Yp'].T @ np.linalg.pinv(WS['Yp'] @ WS['Yp'].T) @ WS['Yp']  # Eq. (10)
@@ -348,11 +389,11 @@ def PSID(
     # Stage 2
     n2 = nx - n1
     if n2 > 0:
-        if nx > i * ny:
+        if nx > iY * ny:
             raise (
                 Exception(
-                    "nx (currently {}) must be at most i*ny={}*{}={}. Use a larger horizon i.".format(
-                        nx, i, ny, i * ny
+                    "nx (currently {}) must be at most iY*ny={}*{}={}. Use a larger neural horizon iY.".format(
+                        nx, iY, ny, iY * ny
                     )
                 )
             )
@@ -364,7 +405,7 @@ def PSID(
         ):
             WS["n1"] = n1
 
-            Yf = blkhankskip(Y, i, N, i, time_first=time_first)
+            Yf = blkhankskip(Y, iY, N, iMax, time_first=time_first)
             Yf_Minus = Yf[ny:, :]
 
             if (
@@ -446,9 +487,11 @@ def PSID(
     Q = (Q + Q.T) / 2  # Make precisely symmetric
     R = (R + R.T) / 2  # Make precisely symmetric
 
-    s = LSSM.LSSM(params={"A": A, "C": Cy, "Q": Q, "R": R, "S": S})
+    s = LSSM.LSSM(
+        params={"A": A, "C": Cy, "Q": Q, "R": R, "S": S}, missing_marker=missing_marker
+    )
     if fit_Cz_via_KF and nz > 0:
-        Cz = fitCzViaKFRegression(s, Y, Z, time_first)
+        Cz = fitCzViaKFRegression(s, Y, Z, time_first, missing_marker=missing_marker)
     s.Cz = Cz
 
     s.YPrepModel = YPrepModel

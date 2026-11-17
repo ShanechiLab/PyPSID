@@ -1,4 +1,4 @@
-""" 
+"""
 Copyright (c) 2020 University of Southern California
 See full notice in LICENSE.md
 Omid G. Sani and Maryam M. Shanechi
@@ -7,9 +7,9 @@ Shanechi Lab, University of Southern California
 Helps with interfacing with matlab
 """
 
-import scipy.io as sio
-import numpy as np
 import h5py
+import numpy as np
+import scipy.io as sio
 
 
 def loadmat(file_path, variable_names=None):

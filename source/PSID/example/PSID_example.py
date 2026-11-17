@@ -1,4 +1,4 @@
-""" 
+"""
 Copyright (c) 2020 University of Southern California
 See full notice in LICENSE.md
 Omid G. Sani and Maryam M. Shanechi
@@ -7,7 +7,7 @@ Shanechi Lab, University of Southern California
 Example for using the PSID algorithm
 """
 
-import argparse, sys, os
+import argparse, sys, os, logging
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -19,6 +19,9 @@ import PSID
 from PSID.evaluation import evalPrediction
 from PSID.MatHelper import loadmat
 from PSID.PrepModel import PrepModel
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -84,7 +87,10 @@ def main():
 
     ## (Example 1) PSID can be used to dissociate and extract only the
     # behaviorally relevant latent states (with nx = n1 = 2)
-    idSys1 = PSID.PSID(yTrain, zTrain, nx=2, n1=2, i=10)
+    idSys1 = PSID.PSIDModel(nx=2, n1=2, i=10)
+    idSys1.fit(yTrain, zTrain)
+    # The above 2 lines are equivalent to the original API from version 1 of the PSID library, which is still available as an option
+    # idSys1 = PSID.PSID(yTrain, zTrain, nx=2, n1=2, i=10)
     # You can also use the time_first=False argument if time is the second dimension:
     # idSys1 = PSID.PSID(yTrain.T, zTrain.T, nx=2, n1=2, i=10, time_first=False)
 
@@ -106,7 +112,8 @@ def main():
 
     ## (Example 2) Optionally, PSID can additionally also learn the
     # behaviorally irrelevant latent states (with nx = 4, n1 = 2)
-    idSys2 = PSID.PSID(yTrain, zTrain, nx=4, n1=2, i=10)
+    idSys2 = PSID.PSIDModel(nx=4, n1=2, i=10)
+    idSys2.fit(yTrain, zTrain)
 
     # In addition to ideal behavior decoding, this model will also have ideal neural self-prediction
     zTestPred2, yTestPred2, xTestPred2 = idSys2.predict(yTest)
@@ -122,7 +129,7 @@ def main():
     # In this case, y and z data segments must be provided as elements of a list
     # Trials do not need to have the same number of samples
     # Here, for example assume that trials start at every 1000 samples.
-    # And each each trial has a random length of 500 to 900 samples
+    # And each trial has a random length of 500 to 900 samples
     trialStartInds = np.arange(0, allYData.shape[0] - 1000, 1000)
     trialDurRange = np.array([900, 990])
     trialDur = np.random.randint(
@@ -143,19 +150,27 @@ def main():
     zTrain = [zTrials[ti] for ti in trainInds]
     zTest = [zTrials[ti] for ti in testInds]
 
-    idSys3 = PSID.PSID(yTrain, zTrain, nx=2, n1=2, i=10)
+    idSys3 = PSID.PSIDModel(nx=2, n1=2, i=10)
+    idSys3.fit(yTrain, zTrain)
 
-    for ti in range(len(yTest)):
-        zPredThis, yPredThis, xPredThis = idSys3.predict(yTest[ti])
-        zPredThisIdeal, yPredThisIdeal, xPredThisIdeal = trueSys.predict(yTest[ti])
-        if ti == 0:
-            zTestA = zTest[ti]
-            zPredA = zPredThis
-            zPredIdealA = zPredThisIdeal
-        else:
-            zTestA = np.concatenate((zTestA, zTest[ti]), axis=0)
-            zPredA = np.concatenate((zPredA, zPredThis), axis=0)
-            zPredIdealA = np.concatenate((zPredIdealA, zPredThisIdeal), axis=0)
+    zPredThis, yPredThis, xPredThis = idSys3.predict(yTest)
+    zPredThisIdeal, yPredThisIdeal, xPredThisIdeal = trueSys.predict(yTest)
+    zTestA = np.concatenate(zTest, axis=0)
+    zPredA = np.concatenate(zPredThis, axis=0)
+    zPredIdealA = np.concatenate(zPredThisIdeal, axis=0)
+
+    # Original API from version 1 of the PSID library required a for over trials for inference, now this happens internally
+    # for ti in range(len(yTest)):
+    #     zPredThis, yPredThis, xPredThis = idSys3.predict(yTest[ti])
+    #     zPredThisIdeal, yPredThisIdeal, xPredThisIdeal = trueSys.predict(yTest[ti])
+    #     if ti == 0:
+    #         zTestA = zTest[ti]
+    #         zPredA = zPredThis
+    #         zPredIdealA = zPredThisIdeal
+    #     else:
+    #         zTestA = np.concatenate((zTestA, zTest[ti]), axis=0)
+    #         zPredA = np.concatenate((zPredA, zPredThis), axis=0)
+    #         zPredIdealA = np.concatenate((zPredIdealA, zPredThisIdeal), axis=0)
 
     R2TrialBased = evalPrediction(zTestA, zPredA, "R2")
     R2TrialBasedIdeal = evalPrediction(zTestA, zPredIdealA, "R2")
@@ -170,12 +185,12 @@ def main():
     # Plot the true and identified eigenvalues
 
     # (Example 1) Eigenvalues when only learning behaviorally relevant states
-    idEigs1 = np.linalg.eig(idSys1.A)[0]
+    idEigs1 = np.linalg.eig(idSys1.model.A)[0]
 
     # (Example 2) Additional eigenvalues when also learning behaviorally irrelevant states
     # The identified model is already in form of Eq. 4, with behaviorally irrelevant states
     # coming as the last 2 dimensions of the states in the identified model
-    idEigs2 = np.linalg.eig(idSys2.A[2:, 2:])[0]
+    idEigs2 = np.linalg.eig(idSys2.model.A[2:, 2:])[0]
 
     relevantDims = (
         trueSys.zDims - 1
@@ -238,7 +253,7 @@ def main():
         facecolors="#aa0000",
         label="(optional) PSID Identified (stage 2)",
     )
-    ax.set_title("True and identified eigevalues")
+    ax.set_title("True and identified eigenvalues")
     ax.legend(bbox_to_anchor=(1.04, 0.5), loc="center left", borderaxespad=0)
     plt.show()
 

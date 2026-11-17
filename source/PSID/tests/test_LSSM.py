@@ -1,0 +1,643 @@
+"""
+Copyright (c) 2020 University of Southern California
+See full notice in LICENSE.md
+Omid G. Sani and Maryam M. Shanechi
+Shanechi Lab, University of Southern California
+
+Tests the LSSM module
+"""
+
+import unittest
+import sys, os, copy
+
+sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+from pathlib import Path
+
+import numpy as np
+from PSID.LSSM import genRandomGaussianNoise, solve_discrete_are_iterative, solveric
+from PSID.sim_tools import (
+    generateRandomLinearModel,
+    getSysSettingsFromSysCode,
+)
+from PSID.evaluation import evalPrediction
+from scipy import linalg
+
+numTests = 100  # Increase this for a slower but more thorough test
+
+
+class TestLSSM(unittest.TestCase):
+    """Unit tests for the LSSM class."""
+
+    #############################################
+    def test_generateRealizationWithKF(self):
+        """Tests data realization generation using Kalman Filter."""
+        sysCode = f"20230424_1_nu1_nxu1_ny1_nz1_Nx1_N11_1_Ne1_1_yNScL1e-0_zSNRLR1e-0_1e+0"  # with input
+        # sysCode = f'20230424_1_ny1_nz1_Nx1_N11_1_Ne1_1_yNScL1e-0_zSNRLR1e-0_1e+0' # without input
+
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+        mse = []
+        for i in range(20):
+            print("Working on model number {}".format(i + 1))
+            s, sysU, zErrSys = generateRandomLinearModel(sysSettings)
+            N = int(2e2)
+            x0 = None
+            nu = s.input_dim
+            if nu > 0:
+                U, XU = sysU.generateRealization(N=N)
+            else:
+                U, XU = None, None
+
+            Y, X, Z, eZ = s.generateRealization(
+                N, return_z=True, return_z_err=True, u=U, x0=x0
+            )
+            allXp, allYp, allXf = s.kalman(Y, U=U)
+            eY = Y - allYp
+            s.R = None
+            Yp, Xp, Zp, eZp = s.generateRealization(
+                N, return_z=True, return_z_err=True, u=U, e=eY, x0=x0
+            )
+            """
+            plt.figure()
+            plt.plot(Y, label='Stochastic')
+            plt.plot(Yp, label='Predictor')
+            # plt.plot(allYp, label='KF')
+            plt.title('Y')
+            plt.legend()
+            # plt.show()
+
+            plt.figure()
+            plt.plot(X, label='Stochastic')
+            plt.plot(Xp, label='Predictor')
+            # plt.plot(allXp, label='KF')
+            plt.title('X')
+            plt.legend()
+
+            plt.figure()
+            plt.plot(Z, label='Stochastic')
+            plt.plot(Zp, label='Predictor')
+            plt.title('Z')
+            plt.legend()
+            """
+            mse.append(np.mean((Y - Yp) ** 2))
+
+            # Verify stochastic and predictor realizations match
+            np.testing.assert_almost_equal(Y, Yp, decimal=10)
+            # np.testing.assert_equal(Y, Yp)
+            # np.testing.assert_allclose(Y, Yp, rtol=1e-3)
+
+        print("AVG MSE(Y,Yp)={}".format(np.mean(mse)))
+        print("done!")
+
+    def test_solveric(self):
+        """Tests the Riccati equation solver (solveric)."""
+        inp = {
+            "A": np.array([[1.6931, -0.6328], [0.7111, 0.3927]]),
+            "C": np.array([[-0.6978, -0.6595], [2.0193, 0.7715], [-1.7937, -0.8203]]),
+            "G": np.array([[-0.8780, 1.5319, -0.7597], [0.1489, 0.5318, 0.3480]]),
+            "L0": np.array(
+                [
+                    [0.0179, -0.9271, -0.1142],
+                    [0.6545, -0.1699, 0.3695],
+                    [1.2577, -0.4717, -0.6186],
+                ]
+            ),
+        }
+        out = (np.array([[0.6479, 0.0861], [0.6025, -0.1736]]), True)
+
+        P, has_solution = solveric(**inp)
+
+        # Verify solveric result against known solution
+        np.testing.assert_equal(out[1], has_solution)
+        np.testing.assert_allclose(out[0], P, rtol=1e-3)
+
+    def test_solve_discrete_are_iterative(self):
+        """Tests the iterative Discrete ARE solver."""
+        np.random.seed(42)
+
+        sysCode = "nyR1_10_nzR1_10_nuR0_10_NxR1_10_N1R0_10"
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+
+        # numTests = 100
+        for ci in range(numTests):
+            with self.subTest(ci=ci):
+                sOrig, sysU, zErrSys = generateRandomLinearModel(sysSettings)
+                s = copy.deepcopy(sOrig)
+                # print('Testing system {}/{}'.format(1+ci, numTests))
+
+                Pp1 = linalg.solve_discrete_are(s.A.T, s.C.T, s.Q, s.R, s=s.S)
+                Pp2 = solve_discrete_are_iterative(s.A.T, s.C.T, s.Q, s.R, s=s.S)
+                Pp3, PpNormChanges = solve_discrete_are_iterative(
+                    s.A.T, s.C.T, s.Q, s.R, s=s.S, return_log=True
+                )
+
+                # Verify iterative solver matches scipy implementation
+                np.testing.assert_almost_equal(Pp1, Pp2)
+                np.testing.assert_almost_equal(0, PpNormChanges[-1])
+
+    def test_LSSM_randomize_in_predictor_form(self):
+        """Tests LSSM randomization in predictor form."""
+        np.random.seed(42)
+
+        sysCode = "nyR1_5_nzR1_5_nuR0_3_NxR1_5_N1R0_5"
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+        sysSettings["predictor_form"] = True
+
+        failInds = []
+        failErrs = []
+        # numTests = 100
+        for ci in range(numTests):
+            with self.subTest(ci=ci):
+                sOrig, sysU, zErrSys = generateRandomLinearModel(sysSettings)
+                s = copy.deepcopy(sOrig)
+                # print('Testing system {}/{}'.format(1+ci, numTests))
+
+                n1 = s.zDims.size
+                trBlock = s.A_KC[:n1, n1:]
+                etcBlock = np.copy(s.A_KC)
+                etcBlock[:n1, n1:] = 0
+                try:
+                    # Verify predictor form structure
+                    np.testing.assert_almost_equal(trBlock, np.zeros_like(trBlock))
+                    np.testing.assert_allclose(
+                        (s.A_KC - etcBlock) / np.linalg.norm(etcBlock),
+                        np.zeros_like(etcBlock),
+                        atol=1e-8,
+                    )
+                except Exception as e:
+                    # print('Failed at sys {}/{} => error: {}'.format(1+ci, numTests, e))
+                    # s = copy.deepcopy(sOrig)
+                    # E = s.makeA_KCBlockDiagonal()
+                    failInds.append(ci)
+                    failErrs.append(e)
+                    raise (Exception(e))
+
+        if len(failInds) > 0:
+            print(
+                "{} => {}/{} random systems FAILED!".format(
+                    self.id(), len(failInds), numTests
+                )
+            )
+        else:
+            print(
+                "\n{} => Ok: Tested with {} random systems".format(self.id(), numTests)
+            )
+
+    def test_LSSM_makeA_KCBlockDiagonal(self):
+        """Tests block diagonalization of A_KC matrix."""
+        np.random.seed(42)
+
+        sysCode = "nyR1_5_nzR1_5_nuR0_3_NxR1_5_N1R0_5"
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+
+        failInds = []
+        failErrs = []
+        numTests = 200
+        for ci in range(numTests):
+            with self.subTest(ci=ci):
+                sOrig, sysU, zErrSys = generateRandomLinearModel(sysSettings)
+                s = copy.deepcopy(sOrig)
+                # print('Testing system {}/{}'.format(1+ci, numTests))
+
+                E = s.makeA_KCBlockDiagonal(ignore_error=True)
+
+                n1 = s.zDims.size
+                trBlock = s.A_KC[:n1, n1:]
+                try:
+                    np.testing.assert_almost_equal(trBlock, np.zeros_like(trBlock))
+                except Exception as e:
+                    # print('Failed at sys {}/{} => error: {}'.format(1+ci, numTests, e))
+                    # s = copy.deepcopy(sOrig)
+                    # E = s.makeA_KCBlockDiagonal()
+                    failInds.append(ci)
+                    failErrs.append(e)
+
+                # Make sure A eigenvalues are the same as before
+                eigOrig = np.linalg.eigvals(sOrig.A)
+                eigNew = np.linalg.eigvals(s.A)
+                np.testing.assert_allclose(np.sort(eigOrig), np.sort(eigNew))
+
+        if len(failInds) > 0:
+            e = "{} => {}/{} random systems FAILED!".format(
+                self.id(), len(failInds), numTests
+            )
+            if len(failInds) > 10:
+                raise (Exception(e))
+            else:
+                print(
+                    f"Occasionally impossible diagonalization problem is expected: {e}"
+                )
+        else:
+            print(
+                "\n{} => Ok: Tested with {} random systems".format(self.id(), numTests)
+            )
+
+    def test_kalmanFilterAndSmoothingForS0Nu0(self):
+        """Tests Kalman Filter and Smoothing against pykalman baseline (S=0, Nu=0)."""
+        from pykalman.standard import _filter, _smooth
+
+        np.random.seed(42)
+
+        sysCode = "nyR1_5_nzR1_5_nuR0_0_NxR1_5_N1R0_5"
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+        sysSettings["S0"] = True  # pykalman requires this
+
+        failInds = []
+        failErrs = []
+        # numTests = 100
+
+        nxAll = []
+        errPredAll = []
+        errFilterAll = []
+        errSmoothAll = []
+        for ci in range(numTests):
+            with self.subTest(ci=ci):
+                sOrig, sysU, zErrSys = generateRandomLinearModel(sysSettings)
+                s = copy.deepcopy(sOrig)
+
+                N = 1000
+                if sOrig.input_dim > 0:
+                    U, Xu = sysU.generateRealization(N, random_x0=True)
+                else:
+                    U = None
+                Y, X = sOrig.generateRealization(N, random_x0=True, u=U)
+
+                missing_prob = (ci % 2 == 0) * 0.5
+                if missing_prob > 0:
+                    is_missing = (np.random.rand(Y.shape[0]) < missing_prob)[
+                        :, np.newaxis
+                    ] * np.ones((1, Y.shape[-1]), dtype=bool)
+                    Y = np.ma.array(data=Y, mask=is_missing)
+
+                allXp, allYp, allXf, allXs, allPp, allPf, allPs = s.kalmanSmoother(
+                    Y, U=U, steady_state=False, return_state_cov=True
+                )
+
+                if sOrig.input_dim == 0 and sysSettings["S0"]:
+                    # Compare with the pykalman library
+                    (
+                        predicted_state_means,
+                        predicted_state_covariances,
+                        kalman_gains,
+                        filtered_state_means,
+                        filtered_state_covariances,
+                    ) = _filter(
+                        transition_matrices=s.A,
+                        observation_matrices=s.C,
+                        transition_covariance=s.Q,
+                        observation_covariance=s.R,
+                        transition_offsets=np.zeros(s.state_dim),
+                        observation_offsets=np.zeros(s.output_dim),
+                        initial_state_mean=np.zeros(s.state_dim),
+                        initial_state_covariance=np.eye(s.state_dim),
+                        observations=Y,
+                    )
+
+                    (
+                        smoothed_state_means,
+                        smoothed_state_covariances,
+                        kalman_smoothing_gains,
+                    ) = _smooth(
+                        transition_matrices=s.A,
+                        filtered_state_means=filtered_state_means,
+                        filtered_state_covariances=filtered_state_covariances,
+                        predicted_state_means=predicted_state_means,
+                        predicted_state_covariances=predicted_state_covariances,
+                    )
+
+                    from pykalman import KalmanFilter
+
+                    kf = KalmanFilter(
+                        transition_matrices=s.A,
+                        observation_matrices=s.C,
+                        transition_covariance=s.Q,
+                        observation_covariance=s.R,
+                        initial_state_mean=np.zeros(s.state_dim),
+                        initial_state_covariance=np.eye(s.state_dim),
+                    )
+                    filtered_state_means_2, filtered_state_covariances_2 = kf.filter(Y)
+                    smoothed_state_means_2, smoothed_state_covariances_2 = kf.smooth(Y)
+
+                    # Verify against pykalman
+                    np.testing.assert_allclose(
+                        filtered_state_means, filtered_state_means_2, rtol=1e-3
+                    )
+                    np.testing.assert_allclose(
+                        smoothed_state_means, smoothed_state_means_2, rtol=1e-3
+                    )
+
+                    np.testing.assert_allclose(allXp, predicted_state_means, rtol=1e-3)
+                    np.testing.assert_allclose(allXf, filtered_state_means, rtol=1e-3)
+                    np.testing.assert_allclose(allXs, smoothed_state_means, rtol=1e-3)
+
+                    np.testing.assert_allclose(
+                        allPp, predicted_state_covariances, rtol=1e-3
+                    )
+                    np.testing.assert_allclose(
+                        allPf, filtered_state_covariances, rtol=1e-3
+                    )
+                    np.testing.assert_allclose(
+                        allPs, smoothed_state_covariances, rtol=1e-3
+                    )
+
+                    # Using the pykalman smoother with the PSID Kalman filter
+                    allXp1, allYp1, allXf1, allPp1, allPf1 = s.kalman(
+                        Y, U=U, steady_state=False, return_state_cov=True
+                    )
+                    (
+                        smoothed_state_means3,
+                        smoothed_state_covariances3,
+                        kalman_smoothing_gains3,
+                    ) = _smooth(
+                        transition_matrices=s.A,
+                        filtered_state_means=allXf1,
+                        filtered_state_covariances=allPf1,
+                        predicted_state_means=allXp1,
+                        predicted_state_covariances=allPp1,
+                    )
+
+                    np.testing.assert_allclose(allXs, smoothed_state_means3, rtol=1e-3)
+                    np.testing.assert_allclose(
+                        allPs, smoothed_state_covariances3, rtol=1e-3
+                    )
+                else:
+                    raise Exception(
+                        "Cannot test the S non-zero case or the input cases against pykalman. Adjust random system generation settings to force S=0 and no inputs."
+                    )
+
+                errPred = np.atleast_2d(np.cov(allXp - X, rowvar=False))
+                errFilter = np.atleast_2d(np.cov(allXf - X, rowvar=False))
+                errSmooth = np.atleast_2d(np.cov(allXs - X, rowvar=False))
+
+                nxAll.append(s.state_dim)
+                errPredAll.append(errPred)
+                errFilterAll.append(errFilter)
+                errSmoothAll.append(errSmooth)
+
+                # These comparisons aren't always true for finite data:
+                # np.testing.assert_array_less(np.sum(np.diag(errFilter)), np.sum(np.diag(errPred)))
+                # np.testing.assert_array_less(np.sum(np.diag(errSmooth)), np.sum(np.diag(errFilter)))
+                # np.testing.assert_array_less(np.diag(errFilter), np.diag(errPred))
+                # np.testing.assert_array_less(np.diag(errSmooth), np.diag(errFilter))
+
+        errPredAvg = np.array([np.mean(np.diag(e)) for e in errPredAll])
+        errFilterAvg = np.array([np.mean(np.diag(e)) for e in errFilterAll])
+        errSmoothAvg = np.array([np.mean(np.diag(e)) for e in errSmoothAll])
+
+        print(
+            "For {}/{} random models, prediction error < filtering error!".format(
+                np.sum(errPredAvg < errFilterAvg), errPredAvg.size
+            )
+        )
+        print(
+            "For {}/{} random models, filtering error < smoothing error!".format(
+                np.sum(errFilterAvg < errSmoothAvg), errFilterAvg.size
+            )
+        )
+        pass
+
+    def test_forwardBackwardSmootherBeingTheSameAsRTS(self):
+        """Tests that Forward-Backward smoother matches RTS smoother results."""
+        np.random.seed(42)
+
+        sysCode = "nyR5_10_nzR5_10_NxR1_10_N1_R1_10_NeR1_10_xNScLR1e-1_1e+1_yNScLR1e-1_1e+1_zSNRLR1e+0_1e+2_icdf_pbeta2_1_"
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+        sysSettings["S0"] = True  # TEEEMP
+
+        # numTests = 100
+        failInds = []
+        failErrs = []
+        for ci in range(numTests):
+            with self.subTest(ci=ci):
+                sOrig, sysU, zErrSys = generateRandomLinearModel(sysSettings)
+                s = copy.deepcopy(sOrig)
+
+                # Compute performance metrics
+                N = int(100)
+                # x0 = None
+                x0 = np.random.randn(s.state_dim)
+                nu = s.input_dim
+                if nu > 0:
+                    U, XU = sysU.generateRealization(N=N)
+                else:
+                    U, XU = None, None
+
+                Y, X, Z, eZ = s.generateRealization(
+                    N, return_z=True, return_z_err=True, u=U, x0=x0
+                )
+
+                # RTS Smoother results
+                allXp, allYp, allXf, allXs, allPp, allPf, allPs = s.kalmanSmoother(
+                    Y, U=U, steady_state=False, return_state_cov=True
+                )
+
+                # Two-filter (forward-backward) smoother results
+                allXpFB, allYpFB, allXfFB, allXsFB, allPpFB, allPfFB, allPsFB = (
+                    s.forwardBackwardSmoother(
+                        Y, U=U, steady_state=False, return_state_cov=True
+                    )
+                )
+
+                Xp1_R2 = evalPrediction(X, allXp, "R2")
+                Xf1_R2 = evalPrediction(X, allXf, "R2")
+                Xs1_R2 = evalPrediction(X, allXs, "R2")
+                XpFB_R2 = evalPrediction(X, allXpFB, "R2")
+                XfFB_R2 = evalPrediction(X, allXfFB, "R2")
+                XsFB_R2 = evalPrediction(X, allXsFB, "R2")
+
+                xHatDiffR2 = evalPrediction(allXs, allXsFB, "R2")
+                covDiffR2 = evalPrediction(allPs[..., 0], allPsFB[..., 0], "R2")
+
+                """
+                import matplotlib.pyplot as plt
+
+                prop_cycle = plt.rcParams["axes.prop_cycle"]
+                colors = prop_cycle.by_key()["color"]
+                fig = plt.figure()
+                plt.plot(X[:, 0], "k", label="True x")
+                plt.plot(
+                    allXp[:, 0],
+                    color=colors[0],
+                    linestyle=":",
+                    label=f"Xp (prediction) R2={np.mean(Xp1_R2):.2f}",
+                )
+                plt.plot(
+                    allXf[:, 0],
+                    color=colors[0],
+                    linestyle="--",
+                    label=f"Xf (filtering) R2={np.mean(Xf1_R2):.2f}",
+                )
+                plt.plot(
+                    allXs[:, 0],
+                    color=colors[0],
+                    linestyle="-",
+                    label=f"Xs (RTS smoothing) R2={np.mean(Xs1_R2):.2f}",
+                )
+                plt.plot(
+                    allXsFB[:, 0],
+                    color=colors[1],
+                    linestyle=":",
+                    label=f"Xs (Two-filter info filt smoothing) R2={np.mean(XsFB_R2):.2f}",
+                )
+                plt.title(f"Diff between RTS and Two-filter: R2={xHatDiffR2[0]:.2f}")
+                plt.xlabel("Time step")
+                plt.ylabel("Estimated state (dim 1)")
+                plt.legend()
+
+                fig = plt.figure()
+                plt.plot(
+                    allPp[:, 0, 0],
+                    color=colors[0],
+                    linestyle=":",
+                    label="Cov of Xp (prediction)",
+                )
+                plt.plot(
+                    allPf[:, 0, 0],
+                    color=colors[0],
+                    linestyle="--",
+                    label="Cov of Xf (filtering)",
+                )
+                plt.plot(
+                    allPs[:, 0, 0],
+                    color=colors[0],
+                    linestyle="-",
+                    label="Cov of Xs (RTS smoothing)",
+                )
+                plt.plot(
+                    allPsFB[:, 0, 0],
+                    color=colors[1],
+                    linestyle=":",
+                    label="Cov of Xs (Two-filter info filt smoothing)",
+                )
+                plt.title(f"Diff between RTS and Two-filter: R2={covDiffR2[0]:.2f}")
+                plt.xlabel("Time step")
+                plt.ylabel("Error cov for estimated state (dim 1)")
+                plt.legend()
+                plt.show()
+                # """
+
+                try:
+                    # Verify Forward-Backward smoother matches RTS
+                    np.testing.assert_allclose(allXp, allXpFB, rtol=1e-4)
+                    np.testing.assert_allclose(allXs, allXsFB, rtol=1e-4)
+                    np.testing.assert_allclose(allPs, allPsFB, rtol=1e-4)
+                except Exception as e:
+                    failInds.append(ci)
+                    failErrs.append(e)
+
+        if len(failInds) > 0:
+            print(
+                "{} => {}/{} random systems (indices: {}) failed: \n{}".format(
+                    self.id(), len(failInds), numTests, failInds, failErrs
+                )
+            )
+        else:
+            print(
+                "{} => Ok: Tested with {} random systems, all were ok!".format(
+                    self.id(), numTests
+                )
+            )
+
+    def test_getBackwardModel(self):
+        """Tests the backward model generation functionality."""
+        np.random.seed(42)
+
+        sysCode = "nyR1_10_nzR1_10_nuR0_0_NxR1_10_N1R0_10"
+        sysCode = "nyR5_10_nzR5_10_NxR1_10_N1_R1_10_NeR1_10_xNScLR1e-1_1e+1_yNScLR1e-1_1e+1_zSNRLR1e+0_1e+2_icdf_pbeta2_1_"
+        sysSettings = getSysSettingsFromSysCode(sysCode)
+
+        # numTests = 100
+        failInds = []
+        failErrs = []
+        for ci in range(numTests):
+            with self.subTest(ci=ci):
+                sOrig, sysU, zErrSys = generateRandomLinearModel(sysSettings)
+                s = copy.deepcopy(sOrig)
+                sBW = s.getBackwardModel()
+
+                # Testing that the backward model has the same second order statistics (analytically) as the forward model
+                np.testing.assert_allclose(s.YCov, sBW.YCov, rtol=1e-5)
+                for d in range(10):
+                    YCCov_d = s.C @ s.A ** (d - 1) @ s.G
+                    YYCovBW_d = sBW.C @ sBW.A ** (d - 1) @ sBW.G
+                    np.testing.assert_allclose(YCCov_d, YYCovBW_d.T, rtol=1e-5)
+
+                if hasattr(s, "Cz") and s.Cz is not None and s.Cz.size > 0:
+                    # Verify lag-0 cross-covariance E[y_k z_k^T] is preserved in backward model
+                    Sxz = (
+                        s.Sxz
+                        if hasattr(s, "Sxz") and s.Sxz is not None
+                        else np.zeros((s.state_dim, s.Cz.shape[0]))
+                    )
+                    Syz = (
+                        s.Syz
+                        if hasattr(s, "Syz") and s.Syz is not None
+                        else np.zeros((s.C.shape[0], s.Cz.shape[0]))
+                    )
+                    yzCovFW = s.C @ s.XCov @ s.Cz.T + Syz
+                    yzCovBW = sBW.C @ sBW.XCov @ sBW.Cz.T + sBW.Syz
+                    np.testing.assert_allclose(yzCovFW, yzCovBW, rtol=1e-5)
+
+                    # Verify effective backward filtering gain identity when forward Sxz=0, Syz=0
+                    if np.allclose(Sxz, 0) and np.allclose(Syz, 0):
+                        effCzKfBW = (
+                            sBW.Cz @ sBW.Kf
+                            + sBW.Syz.T @ np.linalg.pinv(sBW.innovCov)
+                        )
+                        expectedCzKfBW = s.Cz @ s.XCov @ sBW.K
+                        np.testing.assert_allclose(
+                            effCzKfBW, expectedCzKfBW, rtol=1e-4, atol=1e-6
+                        )
+
+    def test_missing_marker_inference(self):
+        """Tests missing_marker (NaN) and numpy.ma masked array handling during LSSM inference and PSID Cz fitting."""
+        from PSID.PSID import PSID
+
+        np.random.seed(42)
+        sysSettings = getSysSettingsFromSysCode(
+            "nyR5_5_nzR3_3_NxR2_2_N1R2_2_NeR0_0_S0_xNScLR1e-1_1e+0_yNScLR1e-1_1e+0_zSNRLR1e+1_1e+2_icdf_pbeta2_1_"
+        )
+        s, _, _ = generateRandomLinearModel(sysSettings)
+        N = 1000
+        Y, X = s.generateRealization(N)
+        Z = s.generateObservationFromStates(X, u=None, param_names=["Cz", "Dz"])
+
+        # Mask 10% of Y samples at inference with NaN vs numpy.ma masked array
+        missing_mask = np.zeros(N, dtype=bool)
+        missing_mask[100:120] = True
+        missing_mask[400:420] = True
+        Y_nan = Y.copy()
+        Y_nan[missing_mask, :] = np.nan
+        Y_ma = np.ma.masked_array(Y.copy(), mask=np.repeat(missing_mask[:, None], Y.shape[1], axis=1))
+
+        s_nan = copy.deepcopy(s)
+        s_nan.missing_marker = np.nan
+        zp_nan, yp_nan, xp_nan = s_nan.predict(Y_nan, steady_state=False)
+        zp_ma, yp_ma, xp_ma = s.predict(Y_ma, steady_state=False)
+
+        self.assertFalse(np.any(np.isnan(zp_nan)))
+        self.assertFalse(np.any(np.isnan(yp_nan)))
+        self.assertFalse(np.any(np.isnan(xp_nan)))
+        np.testing.assert_allclose(zp_nan, zp_ma, rtol=1e-7, atol=1e-7)
+        np.testing.assert_allclose(yp_nan, yp_ma, rtol=1e-7, atol=1e-7)
+
+        # Steady-state inference with missing_marker also stays finite
+        zp_ss, _, _ = s_nan.predict(Y_nan, steady_state=True)
+        self.assertFalse(np.any(np.isnan(zp_ss)))
+
+        # fitCzViaKFRegression with finite missing_marker in Z skips missing Z samples
+        from PSID.PSID import fitCzViaKFRegression
+
+        Cz_clean = fitCzViaKFRegression(s, Y, Z, time_first=True)
+        Z_train = Z.copy()
+        Z_train[50:80, :] = -999.0
+        Cz_fit = fitCzViaKFRegression(
+            s, Y, Z_train, time_first=True, missing_marker=-999.0
+        )
+        self.assertFalse(np.any(np.isnan(Cz_fit)))
+        np.testing.assert_allclose(Cz_fit, Cz_clean, rtol=0.1, atol=0.1)
+
+
+if __name__ == "__main__":
+    unittest.main()

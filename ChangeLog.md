@@ -1,6 +1,12 @@
 # Changes 
 Versioning follows [semver](https://semver.org/).
 
+- v2.0.0:
+  - Adds `PSIDModel` class with scikit-learn-style `fit`/`predict` API, automatic hyperparameter selection via inner cross-validation, support for `prediction` ($k|k-1$), `filtering` ($k|k$), and forward-backward `smoothing` ($k|N$) inference modes, and support for external inputs (`U`, `n3`) via `IPSID`.
+  - Adds support for separate horizons for neural/behavior data (`iY`, `iZ`), multi-step-ahead prediction (`steps_ahead`), and lag compensation (`zShift`).
+  - Fixes RTS Kalman smoother gain for correlated process/observation noise ($S \neq 0$).
+  - Adds standalone smoothing paper simulation reproduction scripts under `paper/`.
+  - Requires Python >=3.10.
 - v1.2.6:
   - Fixes minor error in variable init for trial-based ISID.
 - v1.2.5:

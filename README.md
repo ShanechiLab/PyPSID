@@ -2,6 +2,7 @@
 - [Publications](#publications)
   - [PSID](#psid)
   - [IPSID](#ipsid)
+  - [PSID with filtering and smoothing](#psid-with-filtering-and-smoothing)
 - [Usage guide](#usage-guide)
   - [Installation](#installation)
   - [Initialization](#initialization)
@@ -43,6 +44,13 @@ For the derivation of IPSID and results in real neural data see the paper below.
 
 Parsa Vahidi*, Omid G. Sani*, Maryam M. Shanechi. *Modeling and dissociation of intrinsic and input-driven neural population dynamics underlying behavior*. PNAS (2024). https://doi.org/10.1073/pnas.2212887121
 
+## PSID with filtering and smoothing
+For the derivation of PSID with filtering and smoothing and simulation/neural data results see the paper below.
+
+Omid G. Sani*, Mohammad Hosseini*, Trisha Jha*, Maryam M. Shanechi. *Preferential dynamic modeling with forward-backward smoothing*. NeurIPS (2026). https://openreview.net/pdf?id=vFZhylvjKq
+
+Reproduction scripts for the key simulation results are in [paper/](https://github.com/ShanechiLab/PyPSID/blob/main/paper/README.md).
+
 
 # Usage guide
 ## Installation
@@ -59,41 +67,54 @@ import PSID
 ```
 
 ## Main learning function
-The main functions for the Python implementation are the follwing:
-- For PSID: [source/PSID/PSID.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/PSID.py) -> the function called PSID
-- For IPSID [source/PSID/IPSID.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/IPSID.py) -> the function called IPSID
+The main interfaces for the Python implementation are:
+- For PSID (recommended): [source/PSID/PSIDModel.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/PSIDModel.py) -> the `PSIDModel` class (supports prediction, filtering, and forward-backward smoothing, plus automatic hyperparameter selection).
+- For PSID (functional API): [source/PSID/PSID.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/PSID.py) -> the `PSID` function.
+- For IPSID (with external inputs): [source/PSID/IPSID.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/IPSID.py) -> the `IPSID` function.
 
-A complete usage guide is available in as comments in each function. The following shows example use cases:
-```
+A complete usage guide is available in the docstrings of each class/function. The following shows example use cases:
+```python
+# PSIDModel API (supports prediction, filtering, smoothing, hyperparameter search, and IPSID)
+idSys = PSID.PSIDModel(nx, n1, i)
+idSys.fit(y, z)
+# Or, with external input u (IPSID):
+idSys = PSID.PSIDModel(nx, n1, i)
+idSys.fit(y, z, U=u)
+
+# Functional APIs (return an LSSM object directly)
 idSys = PSID.PSID(y, z, nx, n1, i)
-# Or, if modeling effect of input u is also of interest
 idSys = PSID.IPSID(y, z, u, nx, n1, i)
 ```
 Inputs:
-- y and z are time x dimension matrices with neural (e.g. LFP signal powers or spike counts) and behavioral data (e.g. joint angles, hand position, etc), respectively. 
-- IPSID also takes u as an input, which is a time x dimension matrix, containing the measured input data. 
-- nx is the total number of latent states to be identified.
-- n1 is the number of states that are going to be dedicated to behaviorally relevant dynamics.
-- i is the subspace horizon used for modeling. 
+- `y` and `z` are time x dimension matrices with neural (e.g. LFP signal powers or spike counts) and behavioral data (e.g. joint angles, hand position, etc), respectively.
+- IPSID also takes `u` as an input, which is a time x dimension matrix containing the measured external input data.
+- `nx` is the total number of latent states to be identified.
+- `n1` is the number of states that are going to be dedicated to behaviorally relevant dynamics.
+- `i` is the subspace horizon used for modeling (or `[iY, iZ]` / separate `iY`, `iZ` in `PSIDModel`). In `PSIDModel`, omitting `nx`, `n1`, or `i` triggers automatic inner cross-validation search.
 
 Output:
-- idSys: an LSSM object containing all model parameters (A, Cy, Cz, etc). For a full list see the code.
+- `idSys`: a `PSIDModel` (or `LSSM` for `PSID.PSID` / `PSID.IPSID`) object containing all learned model parameters (`A`, `Cy`, `Cz`, etc.; accessible via `idSys.getLSSM()` on `PSIDModel`).
 
 ## Extracting latent states using learned model
-Once a model is learned using (I)PSID, you can apply the model to new data (i.e. run the associated Kalman filter) as follows:
-```
+Once a model is learned using (I)PSID, you can apply the model to new data as follows:
+```python
 zPred, yPred, xPred = idSys.predict(y)
 # Or, for IPSID:
 zPred, yPred, xPred = idSys.predict(y, u)
 ```
+With `PSIDModel`, `predict(y)` returns 1-step-ahead predictions ($\hat{z}_{k|k-1}$) by default, or filtered ($\hat{z}_{k|k}$) / smoothed ($\hat{z}_{k|N}$) estimates by setting `default_inference='filtering'` or `'smoothing'` at initialization or via:
+```python
+idSys.set_default_inference('filtering')  # or 'smoothing', 'prediction'
+zEst, yEst, xEst = idSys.predict(y)
+```
 Input:
-- y: neural activity time series (time x dimension)
-- [For IPSID] u: input time series (time x dimension)
+- `y`: neural activity time series (time x dimension)
+- `[For IPSID]` `u`: input time series (time x dimension)
 
 Outputs:
-- zPred: one-step ahead prediction of behavior (if any)
-- yPred: one-step ahead prediction of neural activity
-- xPred: Extracted latent state
+- `zPred`: predicted/filtered/smoothed behavior (if any)
+- `yPred`: predicted/filtered/smoothed neural activity
+- `xPred`: extracted latent state
 
 ## Required preprocessing
 - Repeated data dimensions (e.g., two identical neurons) can cause issues for the learning. Remove repeated data dimensions as a preprocessing and repeat predictions as needed to reproduce prediction of repeated data dimensions. 
@@ -121,19 +142,19 @@ For more information, see the notebook(s) referenced in the next section.
 # Usage examples
 ## PSID
 Example code for running PSID is provided in 
-[source/example/PSID_example.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/PSID_example.py)
+[source/PSID/example/PSID_example.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/PSID_example.py)
 This script performs PSID model identification and visualizes the learned eigenvalues similar to in Supplementary Fig 1 in (Sani et al, 2021).
 
 The following notebook also contains some examples along with more descriptions:
-[source/example/PSID_tutorial.ipynb](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/PSID_tutorial.ipynb)
+[source/PSID/example/PSID_tutorial.ipynb](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/PSID_tutorial.ipynb)
 
 ## IPSID
 Example code for running IPSID is provided in 
-[source/example/IPSID_example.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/IPSID_example.py)
+[source/PSID/example/IPSID_example.py](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/IPSID_example.py)
 This script performs IPSID model identification and visualizes the learned eigenvalues similar to in Fig. 2A in (Vahidi, Sani, et al, 2024).
 
 The following notebook also contains some examples along with more descriptions:
-[source/example/IPSID_tutorial.ipynb](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/IPSID_tutorial.ipynb)
+[source/PSID/example/IPSID_tutorial.ipynb](https://github.com/ShanechiLab/PyPSID/blob/main/source/PSID/example/IPSID_tutorial.ipynb)
 
 # Change Log
 You can see the change log in [ChangeLog.md](https://github.com/ShanechiLab/PyPSID/blob/main/ChangeLog.md)  

@@ -3,3 +3,10 @@ scipy
 scikit-learn # sklearn
 matplotlib
 h5py
+tqdm
+
+# Dev tools
+mat73 # Used for loading v7.3 mat files
+pur # For dependency list updates to requirements.txt
+pytest # For unit tests
+pykalman # For comparison in unit tests

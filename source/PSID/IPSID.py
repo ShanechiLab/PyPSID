@@ -1,4 +1,4 @@
-""" 
+"""
 Copyright (c) 2020 University of Southern California
 See full notice in LICENSE.md
 Parsa Vahidi, Omid G. Sani and Maryam M. Shanechi
@@ -10,43 +10,10 @@ import warnings
 import numpy as np
 from scipy import linalg
 
-from . import LSSM
 from . import PrepModel
-from .PSID import blkhankskip, projOrth, getHSize
-
-
-def transposeIf(Y):
-    """Transposes Y itself if Y is an array or each element of Y if it is a list/tuple of arrays.
-
-    Args:
-        Y (np.array or list or tuple): input data or list of input data arrays.
-
-    Returns:
-        np.array or list or tuple: transposed Y or list of transposed arrays.
-    """
-    if Y is None:
-        return None
-    elif isinstance(Y, (list, tuple)):
-        return [transposeIf(YThis) for YThis in Y]
-    else:
-        return Y.T
-
-
-def catIf(Y, axis=None):
-    """If Y is a list of arrays, will concatenate them otherwise returns Y
-
-    Args:
-        Y (np.array or list or tuple): input data or list of input data arrays.
-
-    Returns:
-        np.array or list or tuple: transposed Y or list of transposed arrays.
-    """
-    if Y is None:
-        return None
-    elif isinstance(Y, (list, tuple)):
-        return np.concatenate(Y, axis=axis)
-    else:
-        return Y
+from .LSSM import LSSM
+from .PSID import blkhankskip, getHSize, projOrth
+from .tools import transposeIf, catIf
 
 
 def removeProjOrth(A, B):
@@ -94,7 +61,7 @@ def computeObsFromAC(A, C, i):
 
 def recomputeObsAndStates(A, C, i, YHat, YHatMinus):
     """
-    Computes observabilioty matrices Oy and Oy_Minus using A and C
+    Computes observability matrices Oy and Oy_Minus using A and C
     and recompute Xk and Xk_Plus1 using the new Oy and Oy_Minus
     Returns:
     1) Xk: recomputed states
@@ -146,7 +113,9 @@ def computeBD(A, C, Yii, Xk_Plus1, Xk, i, nu, Uf):
         LHS = LHS + np.kron(Uf[(ii * nu) : (ii * nu + nu), :].T, NN @ RMul)
         NNAll.append(NN)
 
-    DBVec = np.linalg.lstsq(LHS, PP.flatten(order="F"), rcond=None)[0]
+    DBVec = np.linalg.lstsq(LHS, PP.flatten(order="F"), rcond=None)[
+        0
+    ]  # In MATLAB: LHS \ PP(:)
     DB = np.reshape(DBVec, [nx + ny, nu], order="F")
     D = DB[:ny, :]
     B = DB[ny : (ny + nx), :]
@@ -265,7 +234,7 @@ def combineIdSysWithEps(s, s3, missing_marker):
         "Syz": s.Syz,
         "Rz": s.Rz,
     }
-    newSys = LSSM.LSSM(params=new_params)
+    newSys = LSSM(params=new_params)
 
     return newSys
 
@@ -403,7 +372,6 @@ def IPSID(
                 If n_pre=0, Additional steps 1 and 2 won't happen and x3 won't be learned
                 (remove_nonYrelated_fromX1 will be set to False, n3 will be 0).
         - (20) n3: number of latent states x3(k) in the optional additional step 2.
-
     Outputs:
         - (1) idSys: an LSSM object with the system parameters for
                 the identified system. Will have the following
@@ -429,6 +397,7 @@ def IPSID(
             a special case of IPSID. To do so, simply set Z=None and n1=0.
         (6) NDM (or SID, i.e., Standard Subspace Identification without input U, unsupervised by Z) can be performed as
             a special case of IPSID. To do so, simply set Z=None, U=None and n1=0.
+        (7) VODM: The Van Overschee and De Moor subspace identification book, which is ref. 40 in (Vahidi, Sani, et al).
 
     Usage example:
         idSys = IPSID(Y, Z, U, nx=nx, n1=n1, i=i);  # With external input
@@ -466,11 +435,21 @@ def IPSID(
         U = UPrepModel.apply(U, time_first=time_first)
 
     ny, ySamples, N, y1, NTot = getHSize(Y, iMax, time_first=time_first)
-    if Z is not None:
+    if Z is not None and (
+        not isinstance(Z, (list, tuple))
+        and Z.size > 0
+        or isinstance(Z, (list, tuple))
+        and len(Z) > 0
+    ):
         nz, zSamples, _, z1, NTot = getHSize(Z, iMax, time_first=time_first)
     else:
         nz, zSamples = 0, 0
-    if U is not None:
+    if U is not None and (
+        not isinstance(U, (list, tuple))
+        and U.size > 0
+        or isinstance(U, (list, tuple))
+        and len(U) > 0
+    ):
         nu, uSamples, _, u1, NTot = getHSize(U, iMax, time_first=time_first)
     else:
         nu = 0
@@ -547,6 +526,7 @@ def IPSID(
     ):  # Due to provided settings, preprocessing step is disabled and X3 won't be learned.
         remove_nonYrelated_fromX1, n_pre, n3 = False, 0, 0
 
+    # Stage 1
     if n1 > 0 and nz > 0:
         if n1 > iZ * nz:
             raise (
@@ -762,12 +742,11 @@ def IPSID(
         Rz = (e @ e.T) / NA
         params["Rz"] = (Rz + Rz.T) / 2  # Make precisely symmetric
 
-    s = LSSM.LSSM(params=params)
+    s = LSSM(params=params, missing_marker=missing_marker)
     if np.any(np.isnan(s.Pp)):  # Riccati did not have a solution.
         warnings.warn(
             "The learned model did not have a solution for the Riccati equation."
         )
-
     if (
         nu > 0
     ):  # Following a procedure similar to ref. 40 in (Vahidi, Sani, et al), pages 125-127 to find the least squares solution for the model parameters B and Dy
@@ -854,7 +833,7 @@ def IPSID(
             "Rz": s3.R,
         }
 
-        s3 = LSSM.LSSM(params=params3)
+        s3 = LSSM(params=params3)
         s = combineIdSysWithEps(
             s, s3, missing_marker
         )  # Combining model parametrs learned for [X1,X2] and [X3] in a single model
