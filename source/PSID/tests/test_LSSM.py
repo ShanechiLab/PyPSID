@@ -590,6 +590,54 @@ class TestLSSM(unittest.TestCase):
                             effCzKfBW, expectedCzKfBW, rtol=1e-4, atol=1e-6
                         )
 
+    def test_missing_marker_inference(self):
+        """Tests missing_marker (NaN) and numpy.ma masked array handling during LSSM inference and PSID Cz fitting."""
+        from PSID.PSID import PSID
+
+        np.random.seed(42)
+        sysSettings = getSysSettingsFromSysCode(
+            "nyR5_5_nzR3_3_NxR2_2_N1R2_2_NeR0_0_S0_xNScLR1e-1_1e+0_yNScLR1e-1_1e+0_zSNRLR1e+1_1e+2_icdf_pbeta2_1_"
+        )
+        s, _, _ = generateRandomLinearModel(sysSettings)
+        N = 1000
+        Y, X = s.generateRealization(N)
+        Z = s.generateObservationFromStates(X, u=None, param_names=["Cz", "Dz"])
+
+        # Mask 10% of Y samples at inference with NaN vs numpy.ma masked array
+        missing_mask = np.zeros(N, dtype=bool)
+        missing_mask[100:120] = True
+        missing_mask[400:420] = True
+        Y_nan = Y.copy()
+        Y_nan[missing_mask, :] = np.nan
+        Y_ma = np.ma.masked_array(Y.copy(), mask=np.repeat(missing_mask[:, None], Y.shape[1], axis=1))
+
+        s_nan = copy.deepcopy(s)
+        s_nan.missing_marker = np.nan
+        zp_nan, yp_nan, xp_nan = s_nan.predict(Y_nan, steady_state=False)
+        zp_ma, yp_ma, xp_ma = s.predict(Y_ma, steady_state=False)
+
+        self.assertFalse(np.any(np.isnan(zp_nan)))
+        self.assertFalse(np.any(np.isnan(yp_nan)))
+        self.assertFalse(np.any(np.isnan(xp_nan)))
+        np.testing.assert_allclose(zp_nan, zp_ma, rtol=1e-7, atol=1e-7)
+        np.testing.assert_allclose(yp_nan, yp_ma, rtol=1e-7, atol=1e-7)
+
+        # Steady-state inference with missing_marker also stays finite
+        zp_ss, _, _ = s_nan.predict(Y_nan, steady_state=True)
+        self.assertFalse(np.any(np.isnan(zp_ss)))
+
+        # fitCzViaKFRegression with finite missing_marker in Z skips missing Z samples
+        from PSID.PSID import fitCzViaKFRegression
+
+        Cz_clean = fitCzViaKFRegression(s, Y, Z, time_first=True)
+        Z_train = Z.copy()
+        Z_train[50:80, :] = -999.0
+        Cz_fit = fitCzViaKFRegression(
+            s, Y, Z_train, time_first=True, missing_marker=-999.0
+        )
+        self.assertFalse(np.any(np.isnan(Cz_fit)))
+        np.testing.assert_allclose(Cz_fit, Cz_clean, rtol=0.1, atol=0.1)
+
 
 if __name__ == "__main__":
     unittest.main()

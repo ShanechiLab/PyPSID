@@ -1666,17 +1666,6 @@ class LSSM:
         self.applySimTransform(E)
         return E
 
-    def makeCanonical(self):
-        """Transforms the model into a canonical form (e.g., using Schur decomposition).
-
-        Returns:
-            E (np.ndarray): The transformation matrix used.
-        """
-        J, EInv = linalg.schur(self.A, output="real")
-        E = np.linalg.inv(EInv)
-        self.applySimTransform(E)
-        return E
-
     def makeA_KCBlockDiagonal(self, ignore_error=False):
         """Block-diagonalizes A and K*C based on provided blocks.
 
@@ -1692,23 +1681,5 @@ class LSSM:
             else 0
         )
         E = makeMatrixBlockDiagonal(self.A_KC, n1, "A_KC", ignore_error=ignore_error)
-        self.applySimTransform(E)
-        return E
-
-    def makeABlockDiagonal(self, ignore_error=False):
-        """Block-diagonalizes the A matrix based on provided blocks.
-
-        Args:
-            ignore_error (bool, optional): If True, ignores errors during diagonalization. Defaults to False.
-
-        Returns:
-            E (np.ndarray): The transformation matrix used.
-        """
-        n1 = (
-            len(self.zDims)
-            if hasattr(self, "zDims") and isinstance(self.zDims, (list, np.ndarray))
-            else 0
-        )
-        E = makeMatrixBlockDiagonal(self.A, n1, "A", ignore_error=ignore_error)
         self.applySimTransform(E)
         return E
