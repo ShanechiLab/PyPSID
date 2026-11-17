@@ -68,12 +68,8 @@ def recomputeObsAndStates(A, C, i, YHat, YHatMinus):
     2) Xk_Plus1: recomputed states at next time step
     """
     Oy, Oy_Minus = computeObsFromAC(A, C, i)
-    Xk = (
-        np.linalg.pinv(Oy) @ YHat
-    )  # VODM Book p131, Step 5 => NOTE that when there is input, this is XUk (or Zk per VODM) rather than Xk
-    Xk_Plus1 = (
-        np.linalg.pinv(Oy_Minus) @ YHatMinus
-    )  # VODM Book p131, Step 5 => NOTE that when there is input, this is UXk_Plus1 rather than Xk_Plus1
+    Xk = np.linalg.pinv(Oy) @ YHat
+    Xk_Plus1 = np.linalg.pinv(Oy_Minus) @ YHatMinus
     return Xk, Xk_Plus1
 
 
@@ -88,7 +84,7 @@ def computeBD(A, C, Yii, Xk_Plus1, Xk, i, nu, Uf):
     # Find B and D
     Oy, Oy_Minus = computeObsFromAC(A, C, i)
 
-    # See VODM book pages 125-127
+    # See ref. 40 pages 125-127
     PP = np.concatenate((Xk_Plus1 - A @ Xk, Yii - C @ Xk))
 
     L1 = A @ np.linalg.pinv(Oy)
@@ -99,11 +95,11 @@ def computeBD(A, C, Yii, Xk_Plus1, Xk, i, nu, Uf):
 
     ZM = np.concatenate((np.zeros((nx, ny)), np.linalg.pinv(Oy_Minus)), axis=1)
 
-    # LHS * DB = PP    # VODM (4.61)
+    # LHS * DB = PP
     LHS = np.zeros((PP.size, (nx + ny) * nu))
     RMul = linalg.block_diag(np.eye(ny), Oy_Minus)
 
-    NNAll = []  # VODM (4.54) && VODM (4.57) .. (4.59)
+    NNAll = []  # ref. 40 (4.54), (4.57),..,(4.59)
     # Plug in the terms into NN
     for ii in range(i):
         NN = np.zeros(((nx + ny), i * ny))
@@ -264,9 +260,6 @@ def IPSID(
     remove_nonYrelated_fromX1=False,
     n_pre=np.inf,
     n3=0,
-    force_stable_if_not=True,
-    force_stable_stage1=False,
-    force_stable_stage2=False,
 ) -> LSSM:
     """
     IPSID: Input Preferential Subspace Identification Algorithm
@@ -379,13 +372,6 @@ def IPSID(
                 If n_pre=0, Additional steps 1 and 2 won't happen and x3 won't be learned
                 (remove_nonYrelated_fromX1 will be set to False, n3 will be 0).
         - (20) n3: number of latent states x3(k) in the optional additional step 2.
-        - (21) force_stable_if_not (default: True): If True, will run a second
-                pass to learn a model with stable A-KC if the original learned model
-                has unstable A-KC.
-        - (22/23) force_stable_stage1/force_stable_stage2 (default: False): These are
-                internal and should never be set to True by the user. It may be
-                automatically used in a second pass to enforce stability. If used when
-                unnecessary will cause unnecessary error in the model.
     Outputs:
         - (1) idSys: an LSSM object with the system parameters for
                 the identified system. Will have the following
@@ -617,16 +603,6 @@ def IPSID(
         Oz = Uz @ Sz ** (1 / 2)
         Oz_Minus = Oz[:-nz, :]
 
-        if force_stable_stage1:
-            # Modified analogously to the heuristic in VODM book page 129
-            # Add zeros to Oz_Minus to get Oz_0
-            Oz_0 = np.concatenate((Oz_Minus, np.zeros((nz, n1))), axis=0)
-            Cz_temp = Oz[:nz, :]
-            A1_temp = np.linalg.pinv(Oz) @ Oz_0
-            # # Recompute Oz and Oz_Minus with the new A1_temp, Cz_temp
-            # Oz = np.concatenate([Cz_temp@A1_temp**p for p in range(iZ)], axis=0)
-            # Oz_Minus = Oz[:-nz, :]
-
         Xk = np.linalg.pinv(Oz) @ WS["ZHat"]
         # Eq. (24)
         Xk_Plus1 = np.linalg.pinv(Oz_Minus) @ WS["ZHatMinus"]
@@ -707,16 +683,6 @@ def IPSID(
         Oy = U2 @ S2 ** (1 / 2)
         Oy_Minus = Oy[:-ny, :]
 
-        if force_stable_stage2:
-            # Modified analogously to the heuristic in VODM book page 129
-            # Add zeros to Oy_Minus to get Oy_0
-            Oy_0 = np.concatenate((Oy_Minus, np.zeros((ny, n2))), axis=0)
-            Cy_temp = Oy[:ny, :]
-            A2_temp = np.linalg.pinv(Oy) @ Oy_0
-            # # Recompute Oy and Oy_Minus with the new A2_temp, Cy_temp
-            # Oy = np.concatenate([Cy_temp@A2_temp**p for p in range(iY)], axis=0)
-            # Oy_Minus = Oy[:-ny, :]
-
         Xk2 = np.linalg.pinv(Oy) @ WS["YHat"]  # Eq.(28)
         Xk2_Plus1 = np.linalg.pinv(Oy_Minus) @ WS["YHatMinus"]
 
@@ -731,8 +697,6 @@ def IPSID(
             Xk_Plus1[:n1, :], np.concatenate((Xk[:n1, :], WS["Uf"]))
         )  # Eq.(29)
         A = A1Tmp[:n1, :n1]
-        if force_stable_stage1:
-            A = A1_temp
         w = Xk_Plus1[:n1, :] - XkP1Hat[:n1, :]  # Eq.(33)
     else:
         A = np.empty([0, 0])
@@ -744,8 +708,6 @@ def IPSID(
             Xk_Plus1[n1:, :], np.concatenate((Xk, WS["Uf"]))
         )  # Eq.(30)
         A23 = A23Tmp[:, :nx]
-        if force_stable_stage2:
-            A23 = np.concatenate((A23Tmp[:, :n1], A2_temp), axis=1)
         if n1 > 0:
             A10 = np.concatenate((A, np.zeros([n1, n2])), axis=1)
             A = np.concatenate((A10, A23))
@@ -756,16 +718,12 @@ def IPSID(
     if nz > 0:
         ZiiHat, CzTmp = projOrth(WS["Zii"], np.concatenate((Xk, WS["Uf"])))  # Eq.(32)
         Cz = CzTmp[:, :nx]
-        if force_stable_stage1 and n1 > 0:
-            Cz = Cz_temp
         e = WS["Zii"] - ZiiHat
     else:
         Cz = np.empty([0, nx])
 
     YiiHat, CyTmp = projOrth(WS["Yii"], np.concatenate((Xk, WS["Uf"])))  # Eq.(31)
     Cy = CyTmp[:, :nx]
-    if force_stable_stage2 and n2 > 0:
-        Cy = Cy_temp
     v = WS["Yii"] - YiiHat  # Eq.(35)
 
     # Compute noise covariances
@@ -785,84 +743,13 @@ def IPSID(
         params["Rz"] = (Rz + Rz.T) / 2  # Make precisely symmetric
 
     s = LSSM(params=params, missing_marker=missing_marker)
-    if np.any(np.isnan(s.Pp)):  # Riccati did not have a solution. Enforce stability.
+    if np.any(np.isnan(s.Pp)):  # Riccati did not have a solution.
         warnings.warn(
             "The learned model did not have a solution for the Riccati equation."
         )
-        if force_stable_if_not and not (force_stable_stage1 or force_stable_stage2):
-            eigVals1, eigVecs1 = np.linalg.eig(s.A[:n1, :n1])
-            stage1_is_unstable = np.any(np.abs(eigVals1)) > 1
-            eigVals2, eigVecs2 = np.linalg.eig(s.A[(n1 + 1) :, (n1 + 1) :])
-            stage2_is_unstable = np.any(np.abs(eigVals2)) > 1
-            isOk = False
-            cnt = 0
-            newNx = nx
-            newN1 = n1
-            while not isOk and newNx >= 2:
-                cnt += 1
-                newNx = int(newNx / 2)
-                print(
-                    "Attempt #{} to refit the model (with nx={}, n1={}) while enforcing stability.".format(
-                        cnt, newNx, newN1
-                    )
-                )
-                s_tmp = PSID(
-                    Y,
-                    Z=Z,
-                    U=U,
-                    nx=newNx,
-                    n1=newN1,
-                    i=i,
-                    fit_Cz_via_KF=False,
-                    time_first=time_first,  # Prep is already done
-                    remove_mean_Y=False,
-                    remove_mean_Z=False,
-                    remove_mean_U=False,
-                    zscore_Y=False,
-                    zscore_Z=False,
-                    zscore_U=False,
-                    force_stable_stage1=stage1_is_unstable,
-                    force_stable_stage2=stage2_is_unstable,
-                    missing_marker=missing_marker,
-                )
-                isOk = np.all(~np.isnan(s_tmp.Pp))
-                if isOk:
-                    # Attach additional zero states to the temp model
-                    s_tmp.changeParams(
-                        {
-                            "A": np.block(
-                                [
-                                    [s_tmp.A, np.zeros((newNx, nx - newNx))],
-                                    [
-                                        np.zeros((newNx, nx - newNx)),
-                                        np.zeros((newNx, newNx)),
-                                    ],
-                                ]
-                            ),
-                            "C": np.concatenate(
-                                (s_tmp.C, np.zeros((ny, nx - newNx))), axis=1
-                            ),
-                            "Q": np.block(
-                                [
-                                    [s_tmp.Q, np.zeros((newNx, nx - newNx))],
-                                    [
-                                        np.zeros((newNx, nx - newNx)),
-                                        np.zeros((newNx, newNx)),
-                                    ],
-                                ]
-                            ),
-                            "S": np.concatenate(
-                                (s_tmp.S, np.zeros((nx - newNx, ny))), axis=0
-                            ),
-                            "Sxz": np.concatenate(
-                                (s_tmp.Sxz, np.zeros((nx - newNx, nz))), axis=0
-                            ),
-                        }
-                    )
-                    s = s_tmp
     if (
         nu > 0
-    ):  # Following a procedure similar to VODM, pages 125-127 to find the least squares solution for the model parameters B and Dy
+    ):  # Following a procedure similar to ref. 40 in (Vahidi, Sani, et al), pages 125-127 to find the least squares solution for the model parameters B and Dy
         RR = np.triu(
             np.linalg.qr(
                 np.concatenate((WS["Up"], WS["Uf"], WS["Yp"], WS["Yf"])).T / np.sqrt(NA)
