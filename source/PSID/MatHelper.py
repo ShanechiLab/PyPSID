@@ -7,6 +7,7 @@ Shanechi Lab, University of Southern California
 Helps with interfacing with matlab
 """
 
+import h5py
 import numpy as np
 import scipy.io as sio
 
@@ -25,9 +26,7 @@ def loadmat(file_path, variable_names=None):
     except (
         NotImplementedError
     ):  # Runs for v7.3: 'Please use HDF reader for matlab v7.3 files'
-        import mat73
-
-        mat_dict = mat73.loadmat(file_path, use_attrdict=True)
+        mat_dict = h5py.File(file_path)
 
     return _check_keys(mat_dict)
 
